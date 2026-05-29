@@ -1,5 +1,5 @@
 import type { GameState, StatBlock, Equipment, Slot } from "../game/types.ts";
-import { MATERIALS, STAGES, MACHINES, RECIPES, DISMANTLER } from "../game/content.ts";
+import { MATERIALS, STAGES, MACHINES, RECIPES, DISMANTLER, CRAFTERS } from "../game/content.ts";
 import { deriveStats, attackInterval } from "../game/hero.ts";
 import { canAfford } from "../game/inventory.ts";
 import {
@@ -17,6 +17,9 @@ export interface UICallbacks {
   onCraftMachine(id: string): void;
   onSetActive(id: string, delta: number): void;
   onCraft(recipeId: string, qty: number): void;
+  onCraftCrafter(slot: Slot): void;
+  onSetCrafterActive(slot: Slot, delta: number): void;
+  onClearCraftQueue(slot: Slot): void;
   onEquip(uid: number): void;
   onUnequip(slot: Slot): void;
   onDiscard(uid: number): void;
@@ -39,6 +42,9 @@ const SLOT_NAME: Record<Slot, string> = {
   accessory: "飾品",
 };
 
+/** 背包／倉庫清單最多渲染列數：超過只顯示前 N＋提示，避免大量 DOM 拖慢每幀。 */
+const INV_RENDER_CAP = 100;
+
 /** 雙層更新：
  *  - refresh()：使用者操作後重建含按鈕的面板，並快取動態節點。
  *  - tick()：每幀只原地更新數值/樣式（不替換節點，避免 hover 閃爍與 click 遺失）。
@@ -54,6 +60,7 @@ export class UI {
     hero: HTMLElement;
     equipped: HTMLElement;
     machines: HTMLElement;
+    crafters: HTMLElement;
     crafting: HTMLElement;
     filters: HTMLElement;
     equipInv: HTMLElement;
@@ -92,11 +99,26 @@ export class UI {
     craftBtn: HTMLElement;
     cardEl: HTMLElement;
   }[] = [];
-  private craftBtns: { id: string; el: HTMLElement }[] = [];
+  // 生產頁的製裝機卡片
+  private crafterMachineCards: {
+    slot: Slot;
+    countEl: HTMLElement;
+    bar: HTMLElement;
+    craftBtn: HTMLElement;
+    cardEl: HTMLElement;
+  }[] = [];
+  // 背包頁的製裝訂單列
+  private orderRows: {
+    slot: Slot;
+    queueEl: HTMLElement;
+    enqueueBtns: HTMLElement[];
+  }[] = [];
   private heroVals: Record<string, HTMLElement> = {};
   private matVals: Record<string, HTMLElement> = {};
   private matEls: Record<string, HTMLElement> = {};
   private lastWareLen = -1; // 偵測倉庫被拆解器消耗的變動
+  private lastEquipLen = -1; // 偵測主背包被製裝機產出的變動
+  private lastTickTab: string | null = null; // 偵測分頁切換，切到才補渲染該頁重清單
 
   constructor(
     private root: HTMLElement,
@@ -133,11 +155,15 @@ export class UI {
           </section>
           <section class="panel-section" data-panel="prod">
             <h2>生產</h2>
-            <p class="hint">「製造」增加機台（花素材）、「－」拆除退回素材；機台越多、生產越快。</p>
+            <p class="hint">「製造」增加機台（花素材）、「＋／－」配置運轉台數；機台越多、生產越快。</p>
             <div class="machines" data-zone="machines"></div>
+            <h2>製裝機</h2>
+            <p class="hint">消耗中間材料產出裝備；「製造」加台提速、「＋／－」配置運轉。製裝訂單在背包頁設定。</p>
+            <div class="machines" data-zone="crafters"></div>
           </section>
           <section class="panel-section" data-panel="bag">
-            <h2>製裝</h2>
+            <h2>製裝訂單</h2>
+            <p class="hint">按 ＋N 把件數加入製裝佇列；製裝機（生產頁）會逐件耗材產出，產出走過濾器（符合進背包、否則進倉庫）。</p>
             <div class="crafting" data-zone="crafting"></div>
             <div class="collapse-box">
               <div class="collapse-head" data-act="toggleFilters">
@@ -171,6 +197,7 @@ export class UI {
       hero: z("hero"),
       equipped: z("equipped"),
       machines: z("machines"),
+      crafters: z("crafters"),
       crafting: z("crafting"),
       filters: z("filters"),
       equipInv: z("equipInv"),
@@ -235,7 +262,9 @@ export class UI {
     const arg = t.dataset.arg ?? "";
     switch (act) {
       case "reset":
-        this.cb.onReset();
+        if (confirm("確定要重置存檔嗎？所有進度（裝備、材料、研究、關卡）將永久清除且無法復原。")) {
+          this.cb.onReset();
+        }
         break;
       case "tab":
         this.setTab(arg);
@@ -251,6 +280,15 @@ export class UI {
         break;
       case "craft":
         this.cb.onCraft(arg, Number(t.dataset.qty ?? "1"));
+        break;
+      case "crafterActive":
+        this.cb.onSetCrafterActive(arg as Slot, Number(t.dataset.delta ?? "0"));
+        break;
+      case "craftCrafter":
+        this.cb.onCraftCrafter(arg as Slot);
+        break;
+      case "clearQueue":
+        this.cb.onClearCraftQueue(arg as Slot);
         break;
       case "equip":
         this.cb.onEquip(Number(arg));
@@ -317,7 +355,8 @@ export class UI {
     this.renderStages(state);
     this.renderEquipped(state);
     this.renderMachines(state);
-    this.renderCrafting();
+    this.renderCrafterMachines(state);
+    this.renderOrders(state);
     this.renderFilters(state);
     this.renderEquipInv(state);
     this.renderWarehouse(state);
@@ -333,9 +372,9 @@ export class UI {
       const el = this.heroVals[k];
       if (el) el.textContent = v;
     };
-    setHV("hp", `${Math.ceil(Math.max(0, state.combat.heroHp))} / ${s.hp}`);
+    setHV("hp", `${Math.ceil(Math.max(0, state.combat.heroHp))} / ${Math.round(s.hp)}`);
     setHV("atk", `${Math.round(s.atk)}`);
-    setHV("def", `${s.def}`);
+    setHV("def", `${Math.round(s.def)}`);
     setHV("spd", `${attackInterval(s).toFixed(2)}s`);
     setHV("crit", `${Math.round(s.critChance * 100)}%`);
     setHV("critm", `${Math.round(s.critMult * 100)}%`);
@@ -361,12 +400,29 @@ export class UI {
       c.cardEl.classList.toggle("idle", !!st?.idle);
       c.craftBtn.classList.toggle("poor", !canAfford(state, def.buildCost));
     }
-    // 製裝：買得起與否
-    for (const c of this.craftBtns) {
-      c.el.classList.toggle("poor", !canAfford(state, RECIPES[c.id].cost));
+    // 生產頁製裝機卡片：運轉/總數、進度條、缺料紅標、建造按鈕買得起與否
+    for (const c of this.crafterMachineCards) {
+      const cr = CRAFTERS[c.slot];
+      const st = state.crafters[c.slot];
+      const active = st?.active ?? 0;
+      c.countEl.textContent = `${active}/${st?.count ?? 0}`;
+      c.bar.style.width =
+        st && active > 0 ? `${Math.round((st.progress / cr.cycleTime) * 100)}%` : "0%";
+      c.cardEl.classList.toggle("idle", !!st?.idle);
+      c.craftBtn.classList.toggle("poor", !canAfford(state, cr.buildCost));
+    }
+    // 背包頁製裝訂單列：佇列數、入列按鈕買得起與否
+    for (const o of this.orderRows) {
+      const st = state.crafters[o.slot];
+      o.queueEl.textContent = `${st?.queue ?? 0}`;
+      const poorMat = !canAfford(state, RECIPES[o.slot].cost);
+      for (const b of o.enqueueBtns) b.classList.toggle("poor", poorMat);
     }
 
-    // 研究：拆解機與各研究軌（運轉時每幀變動）
+    // 研究分頁：拆解機 / 研究軌 / 基底研究。含 O(N) 的可拆計數與基底件數掃描，
+    // 故只在研究分頁開著時才更新（其餘分頁此面板隱藏，免做白工）。
+    const now = performance.now();
+    if (this.activeTab === "research") {
     const dm = state.dismantler;
     this.dismCountEl.textContent = `${dm.active}/${dm.count}`;
     this.dismBar.style.width =
@@ -376,7 +432,6 @@ export class UI {
     this.dismStatus.textContent = dcount
       ? `可拆 ${dcount} 件（含 T3+ 詞綴）`
       : "無可拆裝備（需 T3+ 詞綴）";
-    const now = performance.now();
     for (const t of this.researchRows) {
       const stages = state.research.stages[t.stat] ?? 0;
       const pts = state.research.points[t.stat] ?? 0;
@@ -405,9 +460,20 @@ export class UI {
       b.prog.textContent = `${avail}/${need} 件`;
       b.btn.classList.toggle("poor", avail < need);
     }
+    } // end research 分頁
 
-    // 倉庫被拆解器即時消耗 → 數量變動時才重建清單
-    if (state.warehouseInv.length !== this.lastWareLen) this.renderWarehouse(state);
+    // 背包分頁：清單可能很大（尤其倉庫），故只在該分頁開著時才隨數量變動重建；
+    // 切換到背包分頁時也補渲染一次，避免在別頁期間的變動沒反映。
+    const tabSwitched = this.activeTab !== this.lastTickTab;
+    this.lastTickTab = this.activeTab;
+    if (this.activeTab === "bag") {
+      if (tabSwitched || state.equipmentInv.length !== this.lastEquipLen) {
+        this.renderEquipInv(state);
+      }
+      if (tabSwitched || state.warehouseInv.length !== this.lastWareLen) {
+        this.renderWarehouse(state);
+      }
+    }
   }
 
   // ---- 只建一次的靜態面板 ----
@@ -507,29 +573,77 @@ export class UI {
       );
   }
 
-  private renderCrafting(): void {
-    this.els.crafting.innerHTML = Object.values(RECIPES)
-      .map(
-        (r) => `<div class="craft-row" data-craft="${r.id}">
+  /** 生產頁：製裝機卡片（比照生產機台，製造／＋－／進度）。 */
+  private renderCrafterMachines(state: GameState): void {
+    const slots: Slot[] = ["weapon", "armor", "accessory"];
+    this.els.crafters.innerHTML = slots
+      .map((slot) => {
+        const r = RECIPES[slot];
+        const cr = CRAFTERS[slot];
+        const c = state.crafters[slot];
+        const active = c?.active ?? 0;
+        const total = c?.count ?? 0;
+        return `<div class="machine-card" data-cmid="${slot}">
+          <div class="mc-top">
+            <span class="mb-icon">${r.icon}</span>
+            <span class="mb-name">${r.name} <span class="mb-own" data-ccount>${active}/${total}</span></span>
+          </div>
+          <span class="mb-recipe">${cost(r.cost)} → 裝備 / ${cr.cycleTime}s</span>
+          <span class="cell-bar mc-bar"><i data-cbar></i></span>
+          <div class="mc-btns">
+            <button class="mc-step" data-act="crafterActive" data-arg="${slot}" data-delta="-1">－</button>
+            <button class="mc-step" data-act="crafterActive" data-arg="${slot}" data-delta="1">＋</button>
+            <button class="mc-craft" data-act="craftCrafter" data-arg="${slot}">製造 ${cost(cr.buildCost)}</button>
+          </div>
+        </div>`;
+      })
+      .join("");
+    this.crafterMachineCards = [];
+    this.els.crafters.querySelectorAll<HTMLElement>("[data-cmid]").forEach((card) =>
+      this.crafterMachineCards.push({
+        slot: card.dataset.cmid as Slot,
+        countEl: card.querySelector<HTMLElement>("[data-ccount]")!,
+        bar: card.querySelector<HTMLElement>("[data-cbar]")!,
+        craftBtn: card.querySelector<HTMLElement>(".mc-craft")!,
+        cardEl: card,
+      }),
+    );
+  }
+
+  /** 背包頁：製裝訂單列（＋N 入列、佇列數、清空）。 */
+  private renderOrders(state: GameState): void {
+    const slots: Slot[] = ["weapon", "armor", "accessory"];
+    this.els.crafting.innerHTML = slots
+      .map((slot) => {
+        const r = RECIPES[slot];
+        const c = state.crafters[slot];
+        return `<div class="craft-row" data-oid="${slot}">
           <span class="cb-name">${r.icon} ${r.name}</span>
           <span class="cb-base">${describeStats(r.base)}</span>
           <span class="cb-cost">${cost(r.cost)}</span>
+          <span class="cb-queue">佇列 <b data-oqueue>${c?.queue ?? 0}</b></span>
           <span class="cb-acts">
-            <button class="craft-btn" data-act="craft" data-arg="${r.id}" data-qty="1">製作</button>
-            <button class="craft-btn x10" data-act="craft" data-arg="${r.id}" data-qty="10">×10</button>
-            <button class="craft-btn x10" data-act="craft" data-arg="${r.id}" data-qty="100">×100</button>
+            <button class="craft-btn" data-act="craft" data-arg="${slot}" data-qty="1">＋1</button>
+            <button class="craft-btn x10" data-act="craft" data-arg="${slot}" data-qty="10">＋10</button>
+            <button class="craft-btn x10" data-act="craft" data-arg="${slot}" data-qty="100">＋100</button>
+            <button class="craft-btn x10" data-act="craft" data-arg="${slot}" data-qty="1000">＋1000</button>
+            <button class="craft-btn clear" data-act="clearQueue" data-arg="${slot}">清空</button>
           </span>
-        </div>`,
-      )
+        </div>`;
+      })
       .join("");
-    // tick() 用：以整列為單位標示買不起（兩顆按鈕同步變暗）
-    this.craftBtns = [];
-    this.els.crafting
-      .querySelectorAll<HTMLElement>(".craft-row")
-      .forEach((el) => this.craftBtns.push({ id: el.dataset.craft!, el }));
+    this.orderRows = [];
+    this.els.crafting.querySelectorAll<HTMLElement>("[data-oid]").forEach((row) =>
+      this.orderRows.push({
+        slot: row.dataset.oid as Slot,
+        queueEl: row.querySelector<HTMLElement>("[data-oqueue]")!,
+        enqueueBtns: Array.from(row.querySelectorAll<HTMLElement>("[data-qty]")),
+      }),
+    );
   }
 
   private renderEquipInv(state: GameState): void {
+    this.lastEquipLen = state.equipmentInv.length;
     if (state.equipmentInv.length === 0) {
       this.els.equipInv.innerHTML = `<p class="empty-note">尚無裝備，去製裝吧。</p>`;
       return;
@@ -539,6 +653,7 @@ export class UI {
       <button class="ghost btn-discard-all" data-act="discardAll">全部拆除</button>
     </div>`;
     const items = state.equipmentInv
+      .slice(0, INV_RENDER_CAP)
       .map(
         (eq) => `<div class="inv-item" data-uid="${eq.uid}" data-bag="main">
         <span class="ii-name">${eq.icon} ${eq.name} <span class="ii-cnt">${eq.affixes.length}詞</span></span>
@@ -551,7 +666,10 @@ export class UI {
       </div>`,
       )
       .join("");
-    this.els.equipInv.innerHTML = head + items;
+    const more = state.equipmentInv.length - INV_RENDER_CAP;
+    const moreNote =
+      more > 0 ? `<p class="empty-note">…還有 ${more} 件（已隱藏以維持效能）</p>` : "";
+    this.els.equipInv.innerHTML = head + items + moreNote;
   }
 
   private renderResearch(): void {
@@ -664,10 +782,9 @@ export class UI {
       <span>${state.warehouseInv.length} 件</span>
       <button class="ghost btn-discard-all" data-act="discardAllWare">全部拆除</button>
     </div>`;
-    this.els.warehouse.innerHTML =
-      head +
-      state.warehouseInv
-        .map(
+    const items = state.warehouseInv
+      .slice(0, INV_RENDER_CAP)
+      .map(
         (eq) => `<div class="inv-item" data-uid="${eq.uid}" data-bag="ware">
         <span class="ii-name">${eq.icon} ${eq.name} <span class="ii-cnt">${eq.affixes.length}詞</span></span>
         <span class="ii-stats">${describeEquip(eq, state)}</span>
@@ -678,6 +795,10 @@ export class UI {
       </div>`,
       )
       .join("");
+    const more = state.warehouseInv.length - INV_RENDER_CAP;
+    const moreNote =
+      more > 0 ? `<p class="empty-note">…還有 ${more} 件（已隱藏以維持效能）</p>` : "";
+    this.els.warehouse.innerHTML = head + items + moreNote;
   }
 }
 
@@ -711,11 +832,20 @@ function describeStats(s: Partial<StatBlock>): string {
 }
 
 function describeEquip(eq: Equipment, state: GameState): string {
-  const base = describeStats(eq.base);
+  // 基底：吃基底研究加成（×(1+baseBonus)），有加成則於該行末附 (+X%) 標。
+  const baseMult = 1 + baseBonus(state, eq.slot);
+  const baseTag =
+    baseMult > 1 ? ` <span class="aff-buff">(+${Math.round((baseMult - 1) * 100)}%)</span>` : "";
+  const baseStr = Object.entries(eq.base)
+    .map(([k, v]) => statLabel(k as keyof StatBlock, (v as number) * baseMult))
+    .join(" ");
+  const base = baseStr ? baseStr + baseTag : "";
+  // 詞綴：把研究強度加成折進顯示數字（×(1+strengthBonus)），(+X%) 標保留作來源提示。
   const aff = eq.affixes.map((a) => {
     const bonus = strengthBonus(state, a.stat);
     const buff = bonus > 0 ? ` <span class="aff-buff">(+${Math.round(bonus * 100)}%)</span>` : "";
-    const val = a.pct ? Math.round(a.value * 100) + "%" : a.value;
+    const eff = a.value * (1 + bonus);
+    const val = a.pct ? Math.round(eff * 100) + "%" : fmtNum(eff);
     return `+${val} ${a.label} <span class="aff-tier">T${a.tier}</span>${buff}`;
   });
   return [base, ...aff].filter(Boolean).join("<br>");
@@ -742,6 +872,11 @@ function statLabel(k: keyof StatBlock, v: number): string {
     "dmgReductionPct",
     "critDmgTakenReductionPct",
   ];
-  const val = pctKeys.includes(k) ? `${Math.round(v * 100)}%` : `${v}`;
+  const val = pctKeys.includes(k) ? `${Math.round(v * 100)}%` : fmtNum(v);
   return `+${val} ${names[k]}`;
+}
+
+/** 平面數值格式化：四捨五入到整數（顯示一律不帶小數點）。 */
+function fmtNum(n: number): string {
+  return `${Math.round(n)}`;
 }

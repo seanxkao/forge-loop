@@ -96,19 +96,20 @@ export function setDismActive(state: GameState, delta: number): void {
   d.active = Math.max(0, Math.min(d.count, d.active + delta));
 }
 
-/** 拆解器 tick：速度 = 基礎 × 運轉台數；每週期取「有研究值」的裝備銷毀（跳過爛裝）。 */
+/** 拆解器 tick：速度 = 基礎 × 運轉台數；每週期取「有研究值」的裝備銷毀（跳過爛裝）。
+ *  效能：只在累積滿一週期時才掃倉庫（findIndex），避免每幀對成長中的倉庫做 O(N) 掃描。 */
 export function tickDismantler(state: GameState, dt: number): void {
   const d = state.dismantler;
-  const nextIdx = () => state.warehouseInv.findIndex(hasResearchValue);
-  if (d.active <= 0 || nextIdx() < 0) {
+  if (d.active <= 0) {
     d.progress = 0;
     return;
   }
   d.progress += dt * d.active; // 運轉台數越多越快
+  if (d.progress < DISMANTLE_CYCLE) return; // 未滿週期：免掃倉庫
   while (d.progress >= DISMANTLE_CYCLE) {
-    const idx = nextIdx();
+    const idx = state.warehouseInv.findIndex(hasResearchValue);
     if (idx < 0) {
-      d.progress = 0;
+      d.progress = 0; // 無可拆 → 歸零閒置（每滿一週期才掃一次）
       break;
     }
     const eq = state.warehouseInv.splice(idx, 1)[0];
@@ -117,9 +118,5 @@ export function tickDismantler(state: GameState, dt: number): void {
       if (v > 0) addResearch(state, aff.stat, v);
     }
     d.progress -= DISMANTLE_CYCLE;
-    if (nextIdx() < 0) {
-      d.progress = 0;
-      break;
-    }
   }
 }

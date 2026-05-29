@@ -1,5 +1,5 @@
 import "./style.css";
-import type { GameState, FilterEntry } from "./game/types.ts";
+import type { GameState, FilterEntry, Slot } from "./game/types.ts";
 import { MATERIALS } from "./game/content.ts";
 import { load, save, wipe } from "./game/save.ts";
 import { createInitialState } from "./game/state.ts";
@@ -10,7 +10,13 @@ import {
   craftMachine,
   setActive,
 } from "./game/production.ts";
-import { craft } from "./game/crafting.ts";
+import {
+  tickCrafters,
+  craftCrafter,
+  setCrafterActive,
+  enqueueCraft,
+  clearCraftQueue,
+} from "./game/crafting.ts";
 import {
   equip,
   unequip,
@@ -59,7 +65,19 @@ const ui = new UI(root, canvas, {
     ui.refresh(state);
   },
   onCraft: (id, qty) => {
-    for (let i = 0; i < qty; i++) craft(state, id);
+    enqueueCraft(state, id as Slot, qty);
+    ui.refresh(state);
+  },
+  onCraftCrafter: (slot) => {
+    craftCrafter(state, slot);
+    ui.refresh(state);
+  },
+  onSetCrafterActive: (slot, delta) => {
+    setCrafterActive(state, slot, delta);
+    ui.refresh(state);
+  },
+  onClearCraftQueue: (slot) => {
+    clearCraftQueue(state, slot);
     ui.refresh(state);
   },
   onEquip: (uid) => {
@@ -129,6 +147,7 @@ const loop = new GameLoop(
   (dt) => {
     tickCombat(state, dt, fx);
     tickProduction(state, dt);
+    tickCrafters(state, dt);
     tickDismantler(state, dt);
     saveTimer += dt;
     if (saveTimer >= 5) {

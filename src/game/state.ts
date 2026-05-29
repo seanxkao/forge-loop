@@ -29,6 +29,12 @@ export function createInitialState(): GameState {
     research: { points: {}, stages: {} },
     baseResearch: { weapon: 0, armor: 0, accessory: 0 },
     dismantler: { count: 1, active: 1, progress: 0 },
+    // 起手免費附三槽製裝機各一台
+    crafters: {
+      weapon: { count: 1, active: 1, progress: 0, queue: 0, idle: false },
+      armor: { count: 1, active: 1, progress: 0, queue: 0, idle: false },
+      accessory: { count: 1, active: 1, progress: 0, queue: 0, idle: false },
+    },
     nextEquipId: 1,
   };
 }

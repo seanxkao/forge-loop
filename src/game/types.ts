@@ -122,6 +122,16 @@ export interface MachineState {
   idle: boolean; // 缺料閒置（含部分缺料）
 }
 
+/** 製裝機（每槽一台型別）：總台數、運轉台數、週期進度（秒）、待製佇列件數、缺料暫停旗標。
+ *  製裝速度 = 基礎 × 運轉台數；逐件消耗該槽配方材料製裝，佇列空則閒置。 */
+export interface CrafterState {
+  count: number; // 總台數（製造增加，不會減少）
+  active: number; // 運轉中台數（0..count）
+  progress: number; // 0..cycleTime 累積秒數
+  queue: number; // 待製件數
+  idle: boolean; // 缺料暫停（非佇列空閒置）
+}
+
 export interface CombatState {
   stageId: string;
   waveIndex: number;
@@ -147,5 +157,7 @@ export interface GameState {
   baseResearch: Record<Slot, number>;
   /** 拆解器：總台數、運轉台數、週期進度（秒）。拆解速度 = 基礎 × 運轉台數。 */
   dismantler: { count: number; active: number; progress: number };
+  /** 製裝機：每槽一台型別，總台數／運轉台數／週期進度／待製佇列。速度 = 基礎 × 運轉台數。 */
+  crafters: Record<Slot, CrafterState>;
   nextEquipId: number;
 }

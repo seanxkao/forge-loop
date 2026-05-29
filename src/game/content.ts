@@ -7,6 +7,7 @@ import type {
   MachineDef,
   RecipeDef,
   StatBlock,
+  Slot,
 } from "./types.ts";
 import { affixPool } from "./affixTable.ts";
 
@@ -83,6 +84,15 @@ export const DISMANTLER = {
   name: "拆解機",
   icon: "🔧",
   buildCost: { ingot: 8, leather: 8, crystal: 8 },
+};
+
+// ---- 製裝機：每槽一台，比照生產機台（製造增台、配置運轉台數）；逐件消耗該槽配方材料製裝。
+//      速度 = 基礎 × 運轉台數。建造成本與週期秒數待平衡（初版週期 1s、建造 10 中間材料）。 ----
+
+export const CRAFTERS: Record<Slot, { buildCost: Record<string, number>; cycleTime: number }> = {
+  weapon: { buildCost: { ingot: 10 }, cycleTime: 1 },
+  armor: { buildCost: { leather: 10 }, cycleTime: 1 },
+  accessory: { buildCost: { crystal: 10 }, cycleTime: 1 },
 };
 
 // ---- 裝備：3 槽各一固定基底，詞綴池見 affixTable.csv（成本／基底待平衡） ----
