@@ -155,6 +155,7 @@ export interface GameState {
   research: { points: Record<string, number>; stages: Record<string, number> };
   /** 基底研究：各槽已完成階數（消耗該基底道具，永久提升該槽基底數值）。 */
   baseResearch: Record<Slot, number>;
+  baseResearchPoints: Record<Slot, number>;
   /** 拆解器：總台數、運轉台數、週期進度（秒）。拆解速度 = 基礎 × 運轉台數。 */
   dismantler: { count: number; active: number; progress: number };
   /** 製裝機：每槽一台型別，總台數／運轉台數／週期進度／待製佇列。速度 = 基礎 × 運轉台數。 */

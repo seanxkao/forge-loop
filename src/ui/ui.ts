@@ -16,10 +16,10 @@ import {
 
 export interface UICallbacks {
   onSelectStage(id: string): void;
-  onCraftMachine(id: string): void;
+  onCraftMachine(id: string, qty: number): void;
   onSetActive(id: string, delta: number): void;
   onCraft(recipeId: string, qty: number): void;
-  onCraftCrafter(slot: Slot): void;
+  onCraftCrafter(slot: Slot, qty: number): void;
   onSetCrafterActive(slot: Slot, delta: number): void;
   onClearCraftQueue(slot: Slot): void;
   onEquip(uid: number): void;
@@ -57,7 +57,9 @@ export class UI {
   private currentState: GameState | null = null;
   private drawerEl!: HTMLElement;
   private tooltipEl!: HTMLElement;
+  private filterModalEl!: HTMLElement;
   private tooltipKey: string | null = null;
+  private filterModalSlot: Slot | null = null;
   private panelEls: Record<string, HTMLElement> = {};
   private tabBtnEls: Record<string, HTMLElement> = {};
 
@@ -92,7 +94,6 @@ export class UI {
     slot: Slot;
     bonus: HTMLElement;
     prog: HTMLElement;
-    btn: HTMLElement;
   }[] = [];
   private researchDisp: Record<string, number> = {}; // easing ?函?憿舐內??
   private lastStages: Record<string, number> = {}; // ?菜葫??
@@ -120,6 +121,11 @@ export class UI {
     queueEl: HTMLElement;
     enqueueBtns: HTMLElement[];
   }[] = [];
+  private machineControlRows: { id: string; buyBtns: HTMLElement[] }[] = [];
+  private crafterControlRows: { slot: Slot; buyBtns: HTMLElement[] }[] = [];
+  private machineBuildQty: Record<string, number> = {};
+  private crafterBuildQty: Record<Slot, number> = { weapon: 1, armor: 1, accessory: 1 };
+  private craftOrderQty: Record<Slot, number> = { weapon: 1, armor: 1, accessory: 1 };
   private heroVals: Record<string, HTMLElement> = {};
   private matVals: Record<string, HTMLElement> = {};
   private matEls: Record<string, HTMLElement> = {};
@@ -162,36 +168,25 @@ export class UI {
           </section>
           <section class="panel-section" data-panel="prod">
             <h2>生產</h2>
-            <p class="hint">「製造」增加機台（花素材）、「＋／－」配置運轉台數；機台越多、生產越快。</p>
+            <p class="hint">「增加機台」會花素材擴充台數；「＋／－」配置運轉台數；主按鈕右側可切換 1、10、100 批次。</p>
             <div class="machines" data-zone="machines"></div>
             <h2>製裝機</h2>
-            <p class="hint">消耗中間材料產出裝備；「製造」加台提速、「＋／－」配置運轉。製裝訂單與過濾器在每台製裝機下方。</p>
+            <p class="hint">消耗中間材料產出裝備；基底效果改用提示顯示，過濾器以彈出視窗編輯。</p>
             <div class="machines" data-zone="crafters"></div>
           </section>
           <section class="panel-section" data-panel="bag">
-            <h2>製裝訂單</h2>
-            <p class="hint">按 ＋N 把件數加入製裝佇列；製裝機會逐件耗材產出，並依過濾器決定放進主背包或倉庫。</p>
-            <div class="crafting" data-zone="crafting"></div>
-            <div class="collapse-box">
-              <div class="collapse-head" data-act="toggleFilters">
-                <span data-filter-caret>▼</span> 過濾器
-              </div>
-              <div class="collapse-body" data-filter-body>
-                <p class="hint">不符條件的新裝會自動進倉庫；空條件代表全留。</p>
-                <div class="filters" data-zone="filters"></div>
-                <button class="btn-sweep" data-act="filterSweep">套用到現有背包</button>
-              </div>
-            </div>
-            <h2>裝備庫存</h2>
-            <p class="hint">右鍵裝備可一鍵在主背包與倉庫間互轉。</p>
             <div class="bag-subtabs" data-zone="bagTabs"></div>
+            <div class="crafting" data-zone="crafting" hidden></div>
+            <div class="filters" data-zone="filters" hidden></div>
+            <h2 data-bag-equip-title>裝備庫存</h2>
+            <p class="hint" data-bag-equip-hint>右鍵裝備可一鍵在主背包與倉庫間互轉。</p>
             <div class="equip-inv" data-zone="equipInv"></div>
-            <h2>倉庫</h2>
+            <h2 data-bag-warehouse-title>倉庫</h2>
             <div class="warehouse" data-zone="warehouse"></div>
           </section>
           <section class="panel-section" data-panel="research">
             <h2>研究</h2>
-            <p class="hint">啟動拆解器會自動銷毀倉庫裝備；T3 以上的詞綴會轉成研究值。詞綴研究每階永久 +10%，基底研究每階永久 +20%。</p>
+            <p class="hint">啟動拆解器會自動銷毀倉庫裝備；每件裝備都會推進對應槽位的基底研究，而 T3 以上詞綴會另外轉成詞綴研究值。詞綴研究每階永久 +10%，基底研究每階永久 +20%。</p>
             <div class="research" data-zone="research"></div>
           </section>
         </aside>
@@ -202,6 +197,18 @@ export class UI {
     this.tooltipEl.className = "equip-tooltip";
     this.tooltipEl.hidden = true;
     document.body.appendChild(this.tooltipEl);
+    this.filterModalEl = document.createElement("div");
+    this.filterModalEl.className = "modal-backdrop";
+    this.filterModalEl.hidden = true;
+    document.body.appendChild(this.filterModalEl);
+    this.filterModalEl.addEventListener("click", (e) => {
+      if (e.target === this.filterModalEl) {
+        this.filterModalSlot = null;
+        this.renderFilterModal(this.currentState);
+        return;
+      }
+      this.onClick(e as MouseEvent);
+    });
     const z = (n: string) =>
       this.root.querySelector(`[data-zone="${n}"]`) as HTMLElement;
     this.els = {
@@ -218,11 +225,6 @@ export class UI {
       inventory: z("inventory"),
       research: z("research"),
     };
-    this.els.crafting.style.display = "none";
-    this.els.filters.style.display = "none";
-    this.els.crafting.nextElementSibling?.setAttribute("style", "display:none");
-    this.els.crafting.previousElementSibling?.setAttribute("style", "display:none");
-    this.els.crafting.previousElementSibling?.previousElementSibling?.setAttribute("style", "display:none");
     // ?賢??????
     this.drawerEl = this.root.querySelector("[data-drawer]") as HTMLElement;
     this.panelEls = {};
@@ -240,17 +242,6 @@ export class UI {
     this.root.addEventListener("contextmenu", (e) => this.onContextMenu(e));
     this.root.addEventListener("mousemove", (e) => this.onHoverMove(e));
     this.root.addEventListener("mouseleave", () => this.hideTooltip());
-  }
-
-  private filterCollapsed = false;
-
-  /** ?嗅?嚗???瞈曉???*/
-  private toggleFilters(): void {
-    this.filterCollapsed = !this.filterCollapsed;
-    const body = this.root.querySelector("[data-filter-body]") as HTMLElement | null;
-    const caret = this.root.querySelector("[data-filter-caret]") as HTMLElement | null;
-    if (body) body.style.display = this.filterCollapsed ? "none" : "";
-    if (caret) caret.textContent = this.filterCollapsed ? "▸" : "▾";
   }
 
   /** ???游??撅????????嗉絲??*/
@@ -357,7 +348,7 @@ export class UI {
         this.cb.onSelectStage(arg);
         break;
       case "craftMachine":
-        this.cb.onCraftMachine(arg);
+        this.cb.onCraftMachine(arg, Number(t.dataset.qty ?? "1"));
         break;
       case "machineActive":
         this.cb.onSetActive(arg, Number(t.dataset.delta ?? "0"));
@@ -369,7 +360,7 @@ export class UI {
         this.cb.onSetCrafterActive(arg as Slot, Number(t.dataset.delta ?? "0"));
         break;
       case "craftCrafter":
-        this.cb.onCraftCrafter(arg as Slot);
+        this.cb.onCraftCrafter(arg as Slot, Number(t.dataset.qty ?? "1"));
         break;
       case "clearQueue":
         this.cb.onClearCraftQueue(arg as Slot);
@@ -403,15 +394,35 @@ export class UI {
           this.renderWarehouse(this.currentState);
         }
         break;
+      case "selectMachineQty":
+        this.machineBuildQty[arg] = Number(t.dataset.qty ?? "1");
+        if (this.currentState) this.renderMachines(this.currentState);
+        break;
+      case "selectCrafterBuildQty":
+        this.crafterBuildQty[arg as Slot] = Number(t.dataset.qty ?? "1");
+        if (this.currentState) this.renderCrafterMachines(this.currentState);
+        break;
+      case "selectCraftQty":
+        this.craftOrderQty[arg as Slot] = Number(t.dataset.qty ?? "1");
+        if (this.currentState) this.renderCrafterMachines(this.currentState);
+        break;
+      case "openFilter":
+        this.filterModalSlot = arg as Slot;
+        if (this.currentState) this.renderFilterModal(this.currentState);
+        break;
+      case "closeFilter":
+        this.filterModalSlot = null;
+        this.renderFilterModal(this.currentState);
+        break;
       case "filterAdd": {
         const stat = (
-          this.els.crafters.querySelector(
+          this.filterModalEl.querySelector(
             `[data-fstat="${arg}"]`,
           ) as HTMLSelectElement
         ).value;
         const tier = Number(
           (
-            this.els.crafters.querySelector(
+            this.filterModalEl.querySelector(
               `[data-ftier="${arg}"]`,
             ) as HTMLSelectElement
           ).value,
@@ -436,9 +447,6 @@ export class UI {
       case "researchBase":
         this.cb.onResearchBase(arg as Slot);
         break;
-      case "toggleFilters":
-        this.toggleFilters();
-        break;
     }
   }
 
@@ -449,12 +457,11 @@ export class UI {
     this.renderEquipped(state);
     this.renderMachines(state);
     this.renderCrafterMachines(state);
-    this.renderOrders(state);
-    this.renderFilters(state);
     this.renderBagTabs();
     this.renderEquipInv(state);
     this.renderWarehouse(state);
     this.renderResearch();
+    this.renderFilterModal(state);
     this.tick(state);
   }
 
@@ -495,6 +502,10 @@ export class UI {
       c.cardEl.classList.toggle("idle", !!st?.idle);
       c.craftBtn.classList.toggle("poor", !canAfford(state, def.buildCost));
     }
+    for (const row of this.machineControlRows) {
+      const poor = !canAfford(state, MACHINES[row.id].buildCost);
+      for (const btn of row.buyBtns) btn.classList.toggle("poor", poor);
+    }
     // ??ˊ鋆??∠?嚗?頧?蝮賣?脣漲璇撩??璅遣???眺敺絲?
     for (const c of this.crafterMachineCards) {
       const cr = CRAFTERS[c.slot];
@@ -506,11 +517,15 @@ export class UI {
       c.cardEl.classList.toggle("idle", !!st?.idle);
       c.craftBtn.classList.toggle("poor", !canAfford(state, cr.buildCost));
     }
+    for (const row of this.crafterControlRows) {
+      const poor = !canAfford(state, CRAFTERS[row.slot].buildCost);
+      for (const btn of row.buyBtns) btn.classList.toggle("poor", poor);
+    }
     // ???ˊ鋆??桀?嚗??????眺敺絲?
     for (const o of this.orderRows) {
       const st = state.crafters[o.slot];
       o.queueEl.textContent = `${st?.queue ?? 0}`;
-      const poorMat = !canAfford(state, RECIPES[o.slot].cost);
+      const poorMat = !canAfford(state, scaleCost(RECIPES[o.slot].cost, this.craftOrderQty[o.slot] ?? 1));
       for (const b of o.enqueueBtns) b.classList.toggle("poor", poorMat);
     }
 
@@ -525,8 +540,8 @@ export class UI {
     this.dismCraftBtn.classList.toggle("poor", !canAfford(state, DISMANTLER.buildCost));
     const dcount = dismantleableCount(state);
     this.dismStatus.textContent = dcount
-      ? `可拆 ${dcount} 件 T3+ 裝備`
-      : "沒有可拆的 T3+ 裝備";
+      ? `可拆 ${dcount} 件裝備`
+      : "倉庫裡沒有可拆裝備";
     for (const t of this.researchRows) {
       const stages = state.research.stages[t.stat] ?? 0;
       const pts = state.research.points[t.stat] ?? 0;
@@ -552,8 +567,7 @@ export class UI {
       const need = baseStageCost(stages);
       const avail = baseItemsAvailable(state, b.slot);
       b.bonus.textContent = `+${Math.round(baseBonus(state, b.slot) * 100)}%`;
-      b.prog.textContent = `${avail}/${need} 件可投入`;
-      b.btn.classList.toggle("poor", avail < need);
+      b.prog.textContent = `${avail}/${need} 件進度`;
     }
     } // end research ??
 
@@ -639,6 +653,7 @@ export class UI {
         const st = state.machines[m.id];
         const active = st?.active ?? 0;
         const total = st?.count ?? 0;
+        const qty = this.machineBuildQty[m.id] ?? 1;
         return `<div class="machine-card" data-mid="${m.id}">
           <div class="mc-top">
             <span class="mb-icon">${m.icon}</span>
@@ -647,25 +662,33 @@ export class UI {
           <span class="mb-recipe">${cost(m.input)} → ${cost(m.output)} / ${m.cycleTime}s</span>
           <span class="cell-bar mc-bar"><i data-mbar></i></span>
           <div class="mc-btns">
+            <button class="mc-main-btn" data-act="craftMachine" data-arg="${m.id}" data-qty="${qty}">增加機台 ${qty}（${cost(scaleCost(m.buildCost, qty))}）</button>
+            ${renderQtyButtons("selectMachineQty", m.id, qty)}
+          </div>
+          <div class="mc-btns mc-btns--secondary">
             <button class="mc-step" data-act="machineActive" data-arg="${m.id}" data-delta="-1">－</button>
             <button class="mc-step" data-act="machineActive" data-arg="${m.id}" data-delta="1">＋</button>
-            <button class="mc-craft" data-act="craftMachine" data-arg="${m.id}">製造 ${cost(m.buildCost)}</button>
           </div>
         </div>`;
       })
       .join("");
     this.machineCards = [];
+    this.machineControlRows = [];
     this.els.machines
       .querySelectorAll<HTMLElement>("[data-mid]")
-      .forEach((card) =>
+      .forEach((card) => {
         this.machineCards.push({
           id: card.dataset.mid!,
           countEl: card.querySelector<HTMLElement>("[data-mcount]")!,
           bar: card.querySelector<HTMLElement>("[data-mbar]")!,
-          craftBtn: card.querySelector<HTMLElement>(".mc-craft")!,
+          craftBtn: card.querySelector<HTMLElement>(".mc-main-btn")!,
           cardEl: card,
-        }),
-      );
+        });
+        this.machineControlRows.push({
+          id: card.dataset.mid!,
+          buyBtns: Array.from(card.querySelectorAll<HTMLElement>("[data-act=\"craftMachine\"]")),
+        });
+      });
   }
 
   /** ???鋆質?璈??瘥?璈嚗ˊ??嚗?嚗脣漲嚗?*/
@@ -678,6 +701,7 @@ export class UI {
         const c = state.crafters[slot];
         const active = c?.active ?? 0;
         const total = c?.count ?? 0;
+        const buildQty = this.crafterBuildQty[slot] ?? 1;
         return `<div class="machine-card crafter-card" data-cmid="${slot}">
           <div class="mc-top">
             <span class="mb-icon">${r.icon}</span>
@@ -686,34 +710,42 @@ export class UI {
           <span class="mb-recipe">${cost(r.cost)} → 裝備 / ${cr.cycleTime}s</span>
           <span class="cell-bar mc-bar"><i data-cbar></i></span>
           <div class="mc-btns">
+            <button class="mc-main-btn" data-act="craftCrafter" data-arg="${slot}" data-qty="${buildQty}">增加機台 ${buildQty}（${cost(scaleCost(cr.buildCost, buildQty))}）</button>
+            ${renderQtyButtons("selectCrafterBuildQty", slot, buildQty)}
+          </div>
+          <div class="mc-btns mc-btns--secondary">
             <button class="mc-step" data-act="crafterActive" data-arg="${slot}" data-delta="-1">－</button>
             <button class="mc-step" data-act="crafterActive" data-arg="${slot}" data-delta="1">＋</button>
-            <button class="mc-craft" data-act="craftCrafter" data-arg="${slot}">製造 ${cost(cr.buildCost)}</button>
+            <button class="mc-mini-btn" data-act="openFilter" data-arg="${slot}">過濾器</button>
           </div>
         </div>`;
       })
       .join("");
     this.crafterMachineCards = [];
-    this.els.crafters.querySelectorAll<HTMLElement>("[data-cmid]").forEach((card) =>
+    this.crafterControlRows = [];
+    this.els.crafters.querySelectorAll<HTMLElement>("[data-cmid]").forEach((card) => {
       this.crafterMachineCards.push({
         slot: card.dataset.cmid as Slot,
         countEl: card.querySelector<HTMLElement>("[data-ccount]")!,
         bar: card.querySelector<HTMLElement>("[data-cbar]")!,
-        craftBtn: card.querySelector<HTMLElement>(".mc-craft")!,
+        craftBtn: card.querySelector<HTMLElement>(".mc-main-btn")!,
         cardEl: card,
-      }),
-    );
+      });
+      this.crafterControlRows.push({
+        slot: card.dataset.cmid as Slot,
+        buyBtns: Array.from(card.querySelectorAll<HTMLElement>("[data-act=\"craftCrafter\"]")),
+      });
+    });
     this.orderRows = [];
     this.els.crafters.querySelectorAll<HTMLElement>("[data-cmid]").forEach((card) => {
       const slot = card.dataset.cmid as Slot;
       card.insertAdjacentHTML("beforeend", this.renderCrafterOrder(slot, state));
-      card.insertAdjacentHTML("beforeend", this.renderCrafterFilter(slot, state));
       const orderRow = card.querySelector<HTMLElement>("[data-oid]");
       if (orderRow) {
         this.orderRows.push({
           slot,
           queueEl: orderRow.querySelector<HTMLElement>("[data-oqueue]")!,
-          enqueueBtns: Array.from(orderRow.querySelectorAll<HTMLElement>("[data-qty]")),
+          enqueueBtns: [orderRow.querySelector<HTMLElement>("[data-act=\"craft\"]")!],
         });
       }
     });
@@ -723,22 +755,40 @@ export class UI {
   private renderCrafterOrder(slot: Slot, state: GameState): string {
     const r = RECIPES[slot];
     const c = state.crafters[slot];
+    const qty = this.craftOrderQty[slot] ?? 1;
     return `<div class="craft-row" data-oid="${slot}">
       <span class="cb-name">${r.icon} ${r.name}</span>
-      <span class="cb-base">${describeStats(r.base)}</span>
-      <span class="cb-cost">${cost(r.cost)}</span>
+      <span class="cb-base cb-base--tip" title="${describeStats(r.base)}">基底</span>
       <span class="cb-queue">佇列 <b data-oqueue>${c?.queue ?? 0}</b></span>
       <span class="cb-acts">
-        <button class="craft-btn" data-act="craft" data-arg="${slot}" data-qty="1">＋1</button>
-        <button class="craft-btn x10" data-act="craft" data-arg="${slot}" data-qty="10">＋10</button>
-        <button class="craft-btn x10" data-act="craft" data-arg="${slot}" data-qty="100">＋100</button>
-        <button class="craft-btn x10" data-act="craft" data-arg="${slot}" data-qty="1000">＋1000</button>
+        <button class="craft-btn craft-btn--main" data-act="craft" data-arg="${slot}" data-qty="${qty}">製造 ${qty}（${cost(scaleCost(r.cost, qty))}）</button>
+        ${renderQtyButtons("selectCraftQty", slot, qty, "craft-btn x10")}
         <button class="craft-btn clear" data-act="clearQueue" data-arg="${slot}">清空</button>
       </span>
     </div>`;
   }
 
-  private renderCrafterFilter(slot: Slot, state: GameState): string {
+  private renderBagTabs(): void {
+    this.els.bagTabs.innerHTML = `
+      <button class="tab-btn${this.activeBagTab === "main" ? " sel" : ""}" data-act="bagTab" data-arg="main">主背包</button>
+      <button class="tab-btn${this.activeBagTab === "warehouse" ? " sel" : ""}" data-act="bagTab" data-arg="warehouse">倉庫</button>
+    `;
+    const warehouseTitle = this.root.querySelector("[data-bag-warehouse-title]") as HTMLElement | null;
+    const equipHint = this.root.querySelector("[data-bag-equip-hint]") as HTMLElement | null;
+    const equipTitle = this.root.querySelector("[data-bag-equip-title]") as HTMLElement | null;
+    if (warehouseTitle) warehouseTitle.style.display = this.activeBagTab === "warehouse" ? "" : "none";
+    if (equipHint) equipHint.style.display = this.activeBagTab === "main" ? "" : "none";
+    if (equipTitle) equipTitle.style.display = this.activeBagTab === "main" ? "" : "none";
+  }
+
+  private renderFilterModal(state: GameState | null): void {
+    if (!state || !this.filterModalSlot) {
+      this.filterModalEl.hidden = true;
+      this.filterModalEl.innerHTML = "";
+      return;
+    }
+
+    const slot = this.filterModalSlot;
     const defs = RECIPES[slot].affixPool;
     const labelOf = (st: string) => defs.find((d) => d.stat === st)?.label ?? st;
     const entries = state.filters[slot] ?? [];
@@ -752,63 +802,25 @@ export class UI {
           .join("")
       : `<span class="fs-none">尚未設定條件</span>`;
     const opts = defs.map((d) => `<option value="${d.stat}">${d.label}</option>`).join("");
-    const tiers = Array.from(
-      { length: 8 },
-      (_, k) => `<option value="${k + 1}">T${k + 1} 以上</option>`,
-    ).join("");
-    return `<div class="filter-slot crafter-filter">
-      <div class="fs-head">${SLOT_NAME[slot]} 過濾器</div>
-      <div class="fs-list">${list}</div>
-      <div class="fs-add">
-        <select data-fstat="${slot}">${opts}</select>
-        <select data-ftier="${slot}">${tiers}</select>
-        <button class="fs-add-btn" data-act="filterAdd" data-arg="${slot}">新增條件</button>
+    const tiers = Array.from({ length: 8 }, (_, k) => `<option value="${k + 1}">T${k + 1} 以上</option>`).join("");
+
+    this.filterModalEl.innerHTML = `
+      <div class="modal-card" role="dialog" aria-modal="true" aria-label="${SLOT_NAME[slot]} 過濾器">
+        <div class="modal-head">
+          <h3>${SLOT_NAME[slot]} 過濾器</h3>
+          <button class="modal-close" data-act="closeFilter">關閉</button>
+        </div>
+        <p class="hint">不符條件的新裝會自動進倉庫；空條件代表全留。</p>
+        <div class="fs-list">${list}</div>
+        <div class="fs-add">
+          <select data-fstat="${slot}">${opts}</select>
+          <select data-ftier="${slot}">${tiers}</select>
+          <button class="fs-add-btn" data-act="filterAdd" data-arg="${slot}">新增條件</button>
+        </div>
+        <button class="btn-sweep" data-act="filterSweep">套用到現有背包</button>
       </div>
-    </div>`;
-  }
-
-  private renderBagTabs(): void {
-    this.els.bagTabs.innerHTML = `
-      <button class="tab-btn${this.activeBagTab === "main" ? " sel" : ""}" data-act="bagTab" data-arg="main">主背包</button>
-      <button class="tab-btn${this.activeBagTab === "warehouse" ? " sel" : ""}" data-act="bagTab" data-arg="warehouse">倉庫</button>
     `;
-    const warehouseTitle = this.els.warehouse.previousElementSibling as HTMLElement | null;
-    const equipHint = this.els.bagTabs.previousElementSibling as HTMLElement | null;
-    const equipTitle = equipHint?.previousElementSibling as HTMLElement | null;
-    if (warehouseTitle) warehouseTitle.style.display = this.activeBagTab === "warehouse" ? "" : "none";
-    if (equipHint) equipHint.style.display = this.activeBagTab === "main" ? "" : "none";
-    if (equipTitle) equipTitle.style.display = this.activeBagTab === "main" ? "" : "none";
-  }
-
-  private renderOrders(state: GameState): void {
-    const slots: Slot[] = ["weapon", "armor", "accessory"];
-    this.els.crafting.innerHTML = slots
-      .map((slot) => {
-        const r = RECIPES[slot];
-        const c = state.crafters[slot];
-        return `<div class="craft-row" data-oid="${slot}">
-          <span class="cb-name">${r.icon} ${r.name}</span>
-          <span class="cb-base">${describeStats(r.base)}</span>
-          <span class="cb-cost">${cost(r.cost)}</span>
-          <span class="cb-queue">佇列 <b data-oqueue>${c?.queue ?? 0}</b></span>
-          <span class="cb-acts">
-            <button class="craft-btn" data-act="craft" data-arg="${slot}" data-qty="1">＋1</button>
-            <button class="craft-btn x10" data-act="craft" data-arg="${slot}" data-qty="10">＋10</button>
-            <button class="craft-btn x10" data-act="craft" data-arg="${slot}" data-qty="100">＋100</button>
-            <button class="craft-btn x10" data-act="craft" data-arg="${slot}" data-qty="1000">＋1000</button>
-            <button class="craft-btn clear" data-act="clearQueue" data-arg="${slot}">清空</button>
-          </span>
-        </div>`;
-      })
-      .join("");
-    this.orderRows = [];
-    this.els.crafting.querySelectorAll<HTMLElement>("[data-oid]").forEach((row) =>
-      this.orderRows.push({
-        slot: row.dataset.oid as Slot,
-        queueEl: row.querySelector<HTMLElement>("[data-oqueue]")!,
-        enqueueBtns: Array.from(row.querySelectorAll<HTMLElement>("[data-qty]")),
-      }),
-    );
+    this.filterModalEl.hidden = false;
   }
 
   private renderEquipInv(state: GameState): void {
@@ -868,14 +880,13 @@ export class UI {
           )
           .join("")}
       </div>
-      <h3 class="research-sub">基底研究（消耗該槽裝備，永久提升基底）</h3>
+      <h3 class="research-sub">基底研究（拆解該槽裝備後自動累積，永久提升基底）</h3>
       <div class="branks">
         ${(["weapon", "armor", "accessory"] as Slot[])
           .map(
             (slot) => `<div class="brank" data-bslot="${slot}">
             <span class="rt-name">${SLOT_NAME[slot]}基底 <b class="rt-bonus" data-bbonus></b></span>
             <span class="rt-prog" data-bprog></span>
-            <button class="mc-craft" data-act="researchBase" data-arg="${slot}">研究</button>
           </div>`,
           )
           .join("")}
@@ -900,46 +911,8 @@ export class UI {
         slot: row.dataset.bslot as Slot,
         bonus: row.querySelector<HTMLElement>("[data-bbonus]")!,
         prog: row.querySelector<HTMLElement>("[data-bprog]")!,
-        btn: row.querySelector<HTMLElement>(".mc-craft")!,
       });
     });
-  }
-
-  private renderFilters(state: GameState): void {
-    const slots: Slot[] = ["weapon", "armor", "accessory"];
-    this.els.filters.innerHTML = slots
-      .map((slot) => {
-        const defs = RECIPES[slot].affixPool;
-        const labelOf = (st: string) =>
-          defs.find((d) => d.stat === st)?.label ?? st;
-        const entries = state.filters[slot] ?? [];
-        const list = entries.length
-          ? entries
-              .map(
-                (e, i) =>
-                  `<span class="fs-entry">${labelOf(e.stat)} ≥ T${e.minTier}
-                  <button class="fs-x" data-act="filterDel" data-arg="${slot}:${i}">✕</button></span>`,
-              )
-              .join("")
-          : `<span class="fs-none">無條件（全留）</span>`;
-        const opts = defs
-          .map((d) => `<option value="${d.stat}">${d.label}</option>`)
-          .join("");
-        const tiers = Array.from(
-          { length: 8 },
-          (_, k) => `<option value="${k + 1}">≥ T${k + 1}</option>`,
-        ).join("");
-        return `<div class="filter-slot">
-          <div class="fs-head">${SLOT_NAME[slot]}</div>
-          <div class="fs-list">${list}</div>
-          <div class="fs-add">
-            <select data-fstat="${slot}">${opts}</select>
-            <select data-ftier="${slot}">${tiers}</select>
-            <button class="fs-add-btn" data-act="filterAdd" data-arg="${slot}">＋條件</button>
-          </div>
-        </div>`;
-      })
-      .join("");
   }
 
   private renderWarehouse(state: GameState): void {
@@ -994,6 +967,24 @@ function cost(c: Record<string, number>): string {
   return Object.entries(c)
     .map(([mat, q]) => `${MATERIALS[mat]?.icon ?? ""}${q}`)
     .join(" ");
+}
+
+function scaleCost(c: Record<string, number>, qty: number): Record<string, number> {
+  return Object.fromEntries(Object.entries(c).map(([mat, q]) => [mat, q * qty]));
+}
+
+function renderQtyButtons(
+  act: string,
+  arg: string,
+  selected: number,
+  className = "mc-mini-btn",
+): string {
+  return [1, 10, 100]
+    .map((qty) => {
+      const sel = qty === selected ? " sel" : "";
+      return `<button class="${className}${sel}" data-act="${act}" data-arg="${arg}" data-qty="${qty}">${qty}</button>`;
+    })
+    .join("");
 }
 
 function describeStats(s: Partial<StatBlock>): string {

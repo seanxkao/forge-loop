@@ -56,8 +56,10 @@ const ui = new UI(root, canvas, {
     startStage(state, id);
     ui.refresh(state);
   },
-  onCraftMachine: (id) => {
-    craftMachine(state, id);
+  onCraftMachine: (id, qty) => {
+    for (let i = 0; i < qty; i += 1) {
+      if (!craftMachine(state, id)) break;
+    }
     ui.refresh(state);
   },
   onSetActive: (id, delta) => {
@@ -68,8 +70,10 @@ const ui = new UI(root, canvas, {
     enqueueCraft(state, id as Slot, qty);
     ui.refresh(state);
   },
-  onCraftCrafter: (slot) => {
-    craftCrafter(state, slot);
+  onCraftCrafter: (slot, qty) => {
+    for (let i = 0; i < qty; i += 1) {
+      if (!craftCrafter(state, slot)) break;
+    }
     ui.refresh(state);
   },
   onSetCrafterActive: (slot, delta) => {

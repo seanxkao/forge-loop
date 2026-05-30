@@ -353,6 +353,29 @@ body {
   display: flex;
   gap: 6px;
   width: 100%;
+  flex-wrap: wrap;
+}
+.mc-main-btn {
+  flex: 1 1 140px;
+  background: var(--accent);
+  border: none;
+  color: #fff;
+  border-radius: 5px;
+  padding: 7px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.mc-main-btn:hover {
+  filter: brightness(1.1);
+}
+.mc-main-btn.poor {
+  opacity: 0.5;
+}
+.mc-main-btn.sel,
+.mc-mini-btn.sel,
+.craft-row .craft-btn.sel {
+  box-shadow: 0 0 0 1px var(--gold) inset;
 }
 .mc-craft {
   flex: 1;
@@ -369,6 +392,25 @@ body {
 }
 .mc-craft.poor {
   opacity: 0.5;
+}
+.mc-mini-btn {
+  background: transparent;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  border-radius: 5px;
+  padding: 6px 10px;
+  min-width: 44px;
+  cursor: pointer;
+  font-weight: 700;
+}
+.mc-mini-btn:hover {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+.mc-mini-btn.poor {
+  opacity: 0.5;
+}
+.mc-btns--secondary {
+  justify-content: flex-end;
 }
 .mc-step {
   background: transparent;
@@ -626,6 +668,10 @@ body {
   flex: 1 1 180px;
   min-width: 0;
 }
+.craft-row .cb-base--tip {
+  cursor: help;
+  color: var(--muted);
+}
 .craft-row .cb-queue {
   flex: 0 0 auto;
 }
@@ -637,6 +683,10 @@ body {
   padding: 5px 10px;
   cursor: pointer;
   font-size: 12px;
+}
+.craft-row .craft-btn--main {
+  padding-inline: 14px;
+  font-weight: 700;
 }
 .craft-row .craft-btn.x10 {
   background: transparent;
@@ -699,18 +749,10 @@ body {
   color: var(--text);
 }
 .crafter-card {
-  flex-basis: 100%;
+  flex: 1 1 320px;
   align-items: stretch;
   gap: 8px;
-  padding: 10px;
-}
-.crafter-top {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.crafter-filter {
-  margin-top: 2px;
+  padding: 10px 8px;
 }
 
 @media (max-width: 1180px) {
@@ -721,6 +763,9 @@ body {
 }
 
 @media (max-width: 520px) {
+  .mc-main-btn {
+    flex-basis: 100%;
+  }
   .craft-row .cb-name,
   .craft-row .cb-base,
   .craft-row .cb-cost,
@@ -937,6 +982,51 @@ body {
 .btn-sweep:hover {
   background: var(--accent);
   color: #fff;
+}
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(6, 10, 16, 0.68);
+}
+.modal-backdrop[hidden] {
+  display: none;
+}
+.modal-card {
+  width: min(560px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  overflow: auto;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.4);
+  padding: 14px;
+}
+.modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.modal-head h3 {
+  margin: 0;
+}
+.modal-close {
+  background: transparent;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  border-radius: 6px;
+  padding: 5px 10px;
+  cursor: pointer;
+}
+.modal-close:hover {
+  color: var(--text);
+  border-color: var(--accent);
 }
 
 /* 研究 */
