@@ -5,6 +5,7 @@ import { load, save, wipe } from "./game/save.ts";
 import { createInitialState } from "./game/state.ts";
 import { GameLoop } from "./game/loop.ts";
 import { tickCombat, startStage, type CombatFx } from "./game/combat.ts";
+import { applyReincarnation } from "./game/reincarnation.ts";
 import {
   tickProduction,
   craftMachine,
@@ -47,7 +48,7 @@ const renderer = new BattleRenderer(canvas);
 
 const fx: CombatFx = {
   onHeroAttack: (d, c) => renderer.heroAttacked(d, c),
-  onEnemyAttack: (d) => renderer.enemyAttacked(d),
+  onEnemyAttack: (d, blocked) => renderer.enemyAttacked(d, blocked),
   onDrop: (mat, q) => renderer.drop(`+${q}${MATERIALS[mat]?.icon ?? ""}`),
 };
 
@@ -138,6 +139,16 @@ const ui = new UI(root, canvas, {
     researchBase(state, slot);
     ui.refresh(state);
   },
+  onVictoryContinue: () => {
+    state.reincarnation.victoryPending = false;
+    ui.refresh(state);
+  },
+  onReincarnate: (buff) => {
+    state = applyReincarnation(state, createInitialState(), buff);
+    startStage(state, state.combat.stageId);
+    ui.refresh(state);
+    save(state);
+  },
   onReset: () => {
     wipe();
     state = createInitialState();
@@ -151,10 +162,19 @@ let saveTimer = 0;
 
 const loop = new GameLoop(
   (dt) => {
+    const hadVictoryPending = state.reincarnation.victoryPending;
+    const hadGameCleared = state.reincarnation.gameCleared;
+    if (state.reincarnation.victoryPending) return;
     tickCombat(state, dt, fx);
     tickProduction(state, dt);
     tickCrafters(state, dt);
     tickDismantler(state, dt);
+    if (
+      state.reincarnation.victoryPending !== hadVictoryPending ||
+      state.reincarnation.gameCleared !== hadGameCleared
+    ) {
+      ui.refresh(state);
+    }
     saveTimer += dt;
     if (saveTimer >= 5) {
       saveTimer = 0;

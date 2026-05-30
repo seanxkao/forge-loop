@@ -11,7 +11,7 @@ export const HERO_BASE: StatBlock = {
   haste: 0,
   hpRegen: 0,
   dmgReductionPct: 0,
-  critDmgTakenReductionPct: 0,
+  blockChance: 0,
 };
 
 /** 英雄基礎攻擊間隔 = 1.2 / (1 + haste)。 */

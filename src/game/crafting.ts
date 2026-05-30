@@ -2,6 +2,7 @@ import type { GameState, Equipment, Affix, AffixDef, AffixTier, RecipeDef, Slot 
 import { RECIPES, AFFIX_COUNT_WEIGHTS, CRAFTERS } from "./content.ts";
 import { spend } from "./inventory.ts";
 import { passesFilter } from "./filter.ts";
+import { totalMachinePurchaseCost } from "./machineCosts.ts";
 
 /** 依權重抽詞綴數量（1～4）。 */
 function rollCount(): number {
@@ -72,8 +73,8 @@ export function craft(state: GameState, recipeId: string): Equipment | null {
 export function craftCrafter(state: GameState, slot: Slot): boolean {
   const def = CRAFTERS[slot];
   if (!def) return false;
-  if (!spend(state, def.buildCost)) return false;
   const c = state.crafters[slot];
+  if (!spend(state, totalMachinePurchaseCost(def.buildCost, c.count, 1))) return false;
   c.count += 1;
   c.active += 1; // 新機台預設運轉
   return true;

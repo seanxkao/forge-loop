@@ -22,7 +22,7 @@ const STAT_LABELS: Record<EquipmentViewKey, string> = {
   haste: "攻速",
   hpRegen: "回血",
   dmgReductionPct: "減傷",
-  critDmgTakenReductionPct: "暴傷減免",
+  blockChance: "格檔率",
 };
 
 const PCT_KEYS = new Set<EquipmentViewKey>([
@@ -31,7 +31,7 @@ const PCT_KEYS = new Set<EquipmentViewKey>([
   "critMult",
   "haste",
   "dmgReductionPct",
-  "critDmgTakenReductionPct",
+  "blockChance",
 ]);
 
 const ROW_ORDER: EquipmentViewKey[] = [
@@ -45,7 +45,7 @@ const ROW_ORDER: EquipmentViewKey[] = [
   "haste",
   "hpRegen",
   "dmgReductionPct",
-  "critDmgTakenReductionPct",
+  "blockChance",
 ];
 
 export function getEquipmentSummaryRows(state: GameState, eq: Equipment): EquipmentViewRow[] {

@@ -1,6 +1,7 @@
 import type { GameState, MachineState } from "./types.ts";
 import { MACHINES } from "./content.ts";
 import { spend, add, amount } from "./inventory.ts";
+import { totalMachinePurchaseCost } from "./machineCosts.ts";
 
 function ensure(state: GameState, id: string): MachineState {
   let m = state.machines[id];
@@ -15,8 +16,8 @@ function ensure(state: GameState, id: string): MachineState {
 export function craftMachine(state: GameState, machineId: string): boolean {
   const def = MACHINES[machineId];
   if (!def) return false;
-  if (!spend(state, def.buildCost)) return false;
   const m = ensure(state, machineId);
+  if (!spend(state, totalMachinePurchaseCost(def.buildCost, m.count, 1))) return false;
   m.count += 1;
   m.active += 1; // 新機台預設運轉
   return true;

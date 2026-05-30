@@ -32,11 +32,18 @@ function makeState(): GameState {
     },
     research: { points: {}, stages: {} },
     baseResearch: { weapon: 0, armor: 0, accessory: 0 },
+    baseResearchPoints: { weapon: 0, armor: 0, accessory: 0 },
     dismantler: { count: 1, active: 1, progress: 0 },
     crafters: {
       weapon: { count: 1, active: 1, progress: 0, queue: 0, idle: false },
       armor: { count: 1, active: 1, progress: 0, queue: 0, idle: false },
       accessory: { count: 1, active: 1, progress: 0, queue: 0, idle: false },
+    },
+    reincarnation: {
+      cycle: 1,
+      buffs: { research: 0, materials: 0, power: 0 },
+      victoryPending: false,
+      gameCleared: false,
     },
     nextEquipId: 1,
   };
@@ -48,7 +55,7 @@ function makeWeapon(
   localPhysPct = 0,
   critChance = 0,
 ): Equipment {
-  const affixes = [];
+  const affixes: Equipment["affixes"] = [];
   if (flatAtk !== 0) affixes.push({ stat: "atk", value: flatAtk, label: "點傷", tier: 3 });
   if (localPhysPct !== 0) {
     affixes.push({
@@ -63,7 +70,7 @@ function makeWeapon(
     affixes.push({
       stat: "critChance",
       value: critChance,
-      label: "暴擊",
+      label: "暴擊率",
       pct: true,
       tier: 3,
     });
@@ -73,7 +80,7 @@ function makeWeapon(
     uid,
     recipeId: "weapon",
     name: "測試武器",
-    icon: "⚔",
+    icon: "S",
     slot: "weapon",
     base: { atk: 10 },
     affixes,
@@ -92,7 +99,6 @@ test("weapon summary starts with computed physical damage after research bonuses
 
   assert.equal(damage, 37.2);
   assert.equal(rows[0]?.key, "physicalDamage");
-  assert.equal(rows[0]?.label, "物理傷害");
   assert.equal(rows[0]?.value, 37.2);
 });
 

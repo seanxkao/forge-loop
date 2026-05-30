@@ -1,8 +1,16 @@
 ﻿import type { GameState, StatBlock, Equipment, Slot } from "../game/types.ts";
 import { MATERIALS, STAGES, MACHINES, RECIPES, DISMANTLER, CRAFTERS } from "../game/content.ts";
+import type { StageDef } from "../game/types.ts";
+import type { ReincarnationBuff } from "../game/types.ts";
 import { deriveStats, attackInterval } from "../game/hero.ts";
 import { canAfford } from "../game/inventory.ts";
 import { getEquipmentComparisonRows, getEquipmentSummaryRows } from "../game/equipmentView.ts";
+import { totalMachinePurchaseCost } from "../game/machineCosts.ts";
+import {
+  materialDropMultiplier,
+  powerMultiplier,
+  researchStageGrowthFactor,
+} from "../game/reincarnation.ts";
 import { clampTooltipPosition } from "./tooltipPosition.ts";
 import {
   stageCost,
@@ -35,6 +43,8 @@ export interface UICallbacks {
   onCraftDismantler(qty: number): void;
   onSetDismActive(delta: number): void;
   onResearchBase(slot: Slot): void;
+  onVictoryContinue(): void;
+  onReincarnate(buff: ReincarnationBuff): void;
   onReset(): void;
 }
 
@@ -58,6 +68,7 @@ export class UI {
   private drawerEl!: HTMLElement;
   private tooltipEl!: HTMLElement;
   private filterModalEl!: HTMLElement;
+  private victoryModalEl!: HTMLElement;
   private tooltipKey: string | null = null;
   private filterModalSlot: Slot | null = null;
   private panelEls: Record<string, HTMLElement> = {};
@@ -76,6 +87,7 @@ export class UI {
     bagTabs: HTMLElement;
     inventory: HTMLElement;
     research: HTMLElement;
+    reincarnation: HTMLElement;
   };
 
   // ?弦?? tick() ?典翰??
@@ -103,6 +115,7 @@ export class UI {
   private baseResearchDisp: Record<Slot, number> = { weapon: 0, armor: 0, accessory: 0 };
   private lastBaseStages: Record<Slot, number> = { weapon: 0, armor: 0, accessory: 0 };
   private baseFlashUntil: Record<Slot, number> = { weapon: 0, armor: 0, accessory: 0 };
+  private lastCycleSeen = 1;
 
   // tick() ?函?敹怠?蝭暺?
   private machineCards: {
@@ -156,6 +169,7 @@ export class UI {
           <button class="tab-btn" data-act="tab" data-arg="prod">🏭 生產</button>
           <button class="tab-btn" data-act="tab" data-arg="bag">🎒 背包</button>
           <button class="tab-btn" data-act="tab" data-arg="research">🔬 研究</button>
+          <button class="tab-btn" data-act="tab" data-arg="reincarnation" data-reinc-tab hidden>♾️ 輪迴</button>
           <button class="btn-reset" data-act="reset">重置存檔</button>
         </div>
       </div>
@@ -193,6 +207,11 @@ export class UI {
             <p class="hint">啟動拆解器會自動銷毀倉庫裝備；每件裝備都會推進對應槽位的基底研究，而 T3 以上詞綴會另外轉成詞綴研究值。詞綴研究每階永久 +10%，基底研究每階永久 +20%。</p>
             <div class="research" data-zone="research"></div>
           </section>
+          <section class="panel-section" data-panel="reincarnation">
+            <h2>輪迴</h2>
+            <p class="hint">通關後可帶走 1 個永久加成，下一輪重新開始。</p>
+            <div class="reincarnation" data-zone="reincarnation"></div>
+          </section>
         </aside>
       </div>
       <div class="inventory-bar">
@@ -219,6 +238,14 @@ export class UI {
       }
       this.onClick(e as MouseEvent);
     });
+    this.victoryModalEl = document.createElement("div");
+    this.victoryModalEl.className = "modal-backdrop";
+    this.victoryModalEl.hidden = true;
+    document.body.appendChild(this.victoryModalEl);
+    this.victoryModalEl.addEventListener("click", (e) => {
+      if (e.target === this.victoryModalEl) return;
+      this.onClick(e as MouseEvent);
+    });
     const z = (n: string) =>
       this.root.querySelector(`[data-zone="${n}"]`) as HTMLElement;
     this.els = {
@@ -234,6 +261,7 @@ export class UI {
       bagTabs: z("bagTabs"),
       inventory: z("inventory"),
       research: z("research"),
+      reincarnation: z("reincarnation"),
     };
     // ?賢??????
     this.drawerEl = this.root.querySelector("[data-drawer]") as HTMLElement;
@@ -462,11 +490,21 @@ export class UI {
       case "researchBase":
         this.cb.onResearchBase(arg as Slot);
         break;
+      case "victoryContinue":
+        this.cb.onVictoryContinue();
+        break;
+      case "reincarnate":
+        this.cb.onReincarnate(arg as ReincarnationBuff);
+        break;
     }
   }
 
   /** 雿輻??雿??澆嚗?撱箏????踴??啣翰??銝西?銝甈?live ?湔??*/
   refresh(state: GameState): void {
+    if (state.reincarnation.cycle !== this.lastCycleSeen) {
+      this.resetResearchAnimationCaches();
+      this.lastCycleSeen = state.reincarnation.cycle;
+    }
     this.currentState = state;
     this.renderStages(state);
     this.renderEquipped(state);
@@ -476,8 +514,24 @@ export class UI {
     this.renderEquipInv(state);
     this.renderWarehouse(state);
     this.renderResearch();
+    this.renderReincarnation(state);
     this.renderFilterModal(state);
+    this.renderVictoryModal(state);
+    const reincTab = this.root.querySelector<HTMLElement>("[data-reinc-tab]");
+    if (reincTab) reincTab.hidden = !state.reincarnation.gameCleared && state.reincarnation.cycle <= 1;
+    if (this.activeTab === "reincarnation" && !state.reincarnation.gameCleared && state.reincarnation.cycle <= 1) {
+      this.setTab("map");
+    }
     this.tick(state);
+  }
+
+  private resetResearchAnimationCaches(): void {
+    this.researchDisp = {};
+    this.lastStages = {};
+    this.flashUntil = {};
+    this.baseResearchDisp = { weapon: 0, armor: 0, accessory: 0 };
+    this.lastBaseStages = { weapon: 0, armor: 0, accessory: 0 };
+    this.baseFlashUntil = { weapon: 0, armor: 0, accessory: 0 };
   }
 
   /** 瘥??澆嚗??湔?詨潸?璅??嚗??踵?隞颱?蝭暺?*/
@@ -497,7 +551,7 @@ export class UI {
     setHV("critm", `${Math.round(s.critMult * 100)}%`);
     setHV("regen", `${Math.round(s.hpRegen)}/s`);
     setHV("dr", `${Math.round(s.dmgReductionPct * 100)}%`);
-    setHV("cdr", `${Math.round(s.critDmgTakenReductionPct * 100)}%`);
+    setHV("block", `${Math.round(s.blockChance * 100)}%`);
 
     // 蝝??賊?
     for (const id in this.matVals) {
@@ -511,14 +565,17 @@ export class UI {
       const def = MACHINES[c.id];
       const st = state.machines[c.id];
       const active = st?.active ?? 0;
+      const qty = this.machineBuildQty[c.id] ?? 1;
       c.countEl.textContent = `${active}/${st?.count ?? 0}`;
       c.bar.style.width =
         st && active > 0 ? `${Math.round((st.progress / def.cycleTime) * 100)}%` : "0%";
       c.cardEl.classList.toggle("idle", !!st?.idle);
-      c.craftBtn.classList.toggle("poor", !canAfford(state, def.buildCost));
+      c.craftBtn.classList.toggle("poor", !canAfford(state, totalMachinePurchaseCost(def.buildCost, st?.count ?? 0, qty)));
     }
     for (const row of this.machineControlRows) {
-      const poor = !canAfford(state, MACHINES[row.id].buildCost);
+      const count = state.machines[row.id]?.count ?? 0;
+      const qty = this.machineBuildQty[row.id] ?? 1;
+      const poor = !canAfford(state, totalMachinePurchaseCost(MACHINES[row.id].buildCost, count, qty));
       for (const btn of row.buyBtns) btn.classList.toggle("poor", poor);
     }
     // ??ˊ鋆??∠?嚗?頧?蝮賣?脣漲璇撩??璅遣???眺敺絲?
@@ -526,14 +583,17 @@ export class UI {
       const cr = CRAFTERS[c.slot];
       const st = state.crafters[c.slot];
       const active = st?.active ?? 0;
+      const qty = this.crafterBuildQty[c.slot] ?? 1;
       c.countEl.textContent = `${active}/${st?.count ?? 0}`;
       c.bar.style.width =
         st && active > 0 ? `${Math.round((st.progress / cr.cycleTime) * 100)}%` : "0%";
       c.cardEl.classList.toggle("idle", !!st?.idle);
-      c.craftBtn.classList.toggle("poor", !canAfford(state, cr.buildCost));
+      c.craftBtn.classList.toggle("poor", !canAfford(state, totalMachinePurchaseCost(cr.buildCost, st?.count ?? 0, qty)));
     }
     for (const row of this.crafterControlRows) {
-      const poor = !canAfford(state, CRAFTERS[row.slot].buildCost);
+      const count = state.crafters[row.slot]?.count ?? 0;
+      const qty = this.crafterBuildQty[row.slot] ?? 1;
+      const poor = !canAfford(state, totalMachinePurchaseCost(CRAFTERS[row.slot].buildCost, count, qty));
       for (const btn of row.buyBtns) btn.classList.toggle("poor", poor);
     }
     // ???ˊ鋆??桀?嚗??????眺敺絲?
@@ -552,7 +612,10 @@ export class UI {
     this.dismCountEl.textContent = `${dm.active}/${dm.count}`;
     this.dismBar.style.width =
       dm.active > 0 ? `${Math.round((dm.progress / DISMANTLE_CYCLE) * 100)}%` : "0%";
-    this.dismCraftBtn.classList.toggle("poor", !canAfford(state, DISMANTLER.buildCost));
+    this.dismCraftBtn.classList.toggle(
+      "poor",
+      !canAfford(state, totalMachinePurchaseCost(DISMANTLER.buildCost, dm.count, this.dismantlerBuildQty)),
+    );
     const dcount = dismantleableCount(state);
     this.dismStatus.textContent = dcount
       ? `可拆 ${dcount} 件裝備`
@@ -560,11 +623,11 @@ export class UI {
     for (const t of this.researchRows) {
       const stages = state.research.stages[t.stat] ?? 0;
       const pts = state.research.points[t.stat] ?? 0;
-      const cost = stageCost(stages);
+      const cost = stageCost(state, stages);
       if (this.lastStages[t.stat] === undefined) this.lastStages[t.stat] = stages;
       // ??嚗??脣漲璇?皛踴孛?潮?????ease ??唳???
       if (stages !== this.lastStages[t.stat]) {
-        this.researchDisp[t.stat] = stageCost(this.lastStages[t.stat]);
+        this.researchDisp[t.stat] = stageCost(state, this.lastStages[t.stat]);
         this.lastStages[t.stat] = stages;
         this.flashUntil[t.stat] = now + 700;
       }
@@ -579,11 +642,11 @@ export class UI {
     // ?箏??弦嚗????瘨???隞嗆?????
     for (const b of this.baseRows) {
       const stages = state.baseResearch[b.slot] ?? 0;
-      const need = baseStageCost(stages);
+      const need = baseStageCost(state, stages);
       const avail = baseItemsAvailable(state, b.slot);
       if (this.lastBaseStages[b.slot] === undefined) this.lastBaseStages[b.slot] = stages;
       if (stages !== this.lastBaseStages[b.slot]) {
-        this.baseResearchDisp[b.slot] = baseStageCost(this.lastBaseStages[b.slot]);
+        this.baseResearchDisp[b.slot] = baseStageCost(state, this.lastBaseStages[b.slot]);
         this.lastBaseStages[b.slot] = stages;
         this.baseFlashUntil[b.slot] = now + 700;
       }
@@ -624,7 +687,7 @@ export class UI {
         <span>暴傷</span><b data-hv="critm"></b>
         <span>回血</span><b data-hv="regen"></b>
         <span>減傷</span><b data-hv="dr"></b>
-        <span>減暴傷承受</span><b data-hv="cdr"></b>
+        <span>格檔率</span><b data-hv="block"></b>
       </div>`;
     this.heroVals = {};
     this.els.hero.querySelectorAll<HTMLElement>("[data-hv]").forEach((el) => {
@@ -652,8 +715,14 @@ export class UI {
   private renderStages(state: GameState): void {
     this.els.stages.innerHTML = STAGES.map((s) => {
       const cur = s.id === state.combat.stageId ? " sel" : "";
+      const enemies = summarizeStageEnemies(s);
+      const drops = summarizeStageDrops(s);
       return `<button class="stage-btn${cur}" data-act="stage" data-arg="${s.id}"
-        title="${s.desc}">${s.name}</button>`;
+        title="${s.desc}">
+        <span class="stage-btn__name">${s.name}</span>
+        <span class="stage-btn__desc">${enemies}</span>
+        <span class="stage-btn__drops">${drops}</span>
+      </button>`;
     }).join("");
   }
 
@@ -680,6 +749,7 @@ export class UI {
         const active = st?.active ?? 0;
         const total = st?.count ?? 0;
         const qty = this.machineBuildQty[m.id] ?? 1;
+        const buildCost = totalMachinePurchaseCost(m.buildCost, total, qty);
         return `<div class="machine-card" data-mid="${m.id}">
           <div class="mc-top">
             <span class="mb-icon">${m.icon}</span>
@@ -688,7 +758,7 @@ export class UI {
           <span class="mb-recipe">${cost(m.input)} → ${cost(m.output)} / ${m.cycleTime}s</span>
           <span class="cell-bar mc-bar"><i data-mbar></i></span>
           <div class="mc-btns">
-            <button class="mc-main-btn" data-act="craftMachine" data-arg="${m.id}" data-qty="${qty}">增加機台 ${qty}（${cost(scaleCost(m.buildCost, qty))}）</button>
+            <button class="mc-main-btn" data-act="craftMachine" data-arg="${m.id}" data-qty="${qty}">增加機台 ${qty}（${cost(buildCost)}）</button>
             ${renderQtyButtons("selectMachineQty", m.id, qty, "mc-mini-btn", [1, 10, 100, 1000, 10000])}
           </div>
           <div class="mc-btns mc-btns--secondary">
@@ -728,6 +798,7 @@ export class UI {
         const active = c?.active ?? 0;
         const total = c?.count ?? 0;
         const buildQty = this.crafterBuildQty[slot] ?? 1;
+        const buildCost = totalMachinePurchaseCost(cr.buildCost, total, buildQty);
         return `<div class="machine-card crafter-card" data-cmid="${slot}">
           <div class="mc-top">
             <span class="mb-icon">${r.icon}</span>
@@ -736,7 +807,7 @@ export class UI {
           <span class="mb-recipe">${cost(r.cost)} → 裝備 / ${cr.cycleTime}s</span>
           <span class="cell-bar mc-bar"><i data-cbar></i></span>
           <div class="mc-btns">
-            <button class="mc-main-btn" data-act="craftCrafter" data-arg="${slot}" data-qty="${buildQty}">增加機台 ${buildQty}（${cost(scaleCost(cr.buildCost, buildQty))}）</button>
+            <button class="mc-main-btn" data-act="craftCrafter" data-arg="${slot}" data-qty="${buildQty}">增加機台 ${buildQty}（${cost(buildCost)}）</button>
             ${renderQtyButtons("selectCrafterBuildQty", slot, buildQty, "mc-mini-btn", [1, 10, 100, 1000, 10000])}
           </div>
           <div class="mc-btns mc-btns--secondary">
@@ -882,6 +953,9 @@ export class UI {
   private renderResearch(): void {
     const tracks = allAffixDefs();
     const qty = this.dismantlerBuildQty;
+    const state = this.currentState;
+    const owned = state?.dismantler.count ?? 0;
+    const buildCost = totalMachinePurchaseCost(DISMANTLER.buildCost, owned, qty);
     this.els.research.innerHTML = `
       <div class="dism">
         <div class="dism-top">
@@ -892,7 +966,7 @@ export class UI {
         <div class="mc-btns">
           <button class="mc-step" data-act="dismActive" data-arg="-1">－</button>
           <button class="mc-step" data-act="dismActive" data-arg="1">＋</button>
-          <button class="mc-main-btn" data-act="craftDismantler" data-qty="${qty}">增加機台 ${qty}（${cost(scaleCost(DISMANTLER.buildCost, qty))}）</button>
+          <button class="mc-main-btn" data-act="craftDismantler" data-qty="${qty}">增加機台 ${qty}（${cost(buildCost)}）</button>
           ${renderQtyButtons("selectDismQty", "dism", qty, "mc-mini-btn", [1, 10, 100])}
         </div>
       </div>
@@ -944,6 +1018,65 @@ export class UI {
         fill: row.querySelector<HTMLElement>("[data-bfill]")!,
       });
     });
+  }
+
+  private renderReincarnation(state: GameState): void {
+    const buffs = state.reincarnation.buffs;
+    const researchReduction = Math.round((1 - researchStageGrowthFactor(state) / 2) * 100);
+    const actions = state.reincarnation.gameCleared
+      ? `<div class="reinc-picks">
+          <h4>開始下一輪並選擇 1 個永久加成</h4>
+          <button class="reinc-pick" data-act="reincarnate" data-arg="research">研究成長倍率 -20%<span>目前累計比原始少 ${researchReduction}%</span></button>
+          <button class="reinc-pick" data-act="reincarnate" data-arg="materials">素材掉落 x1.15<span>目前 ${buffs.materials} 層</span></button>
+          <button class="reinc-pick" data-act="reincarnate" data-arg="power">全能力 x1.10<span>目前 ${buffs.power} 層</span></button>
+        </div>`
+      : `<p class="hint">通關最後一關後，才能在這裡開始下一輪。</p>`;
+    this.els.reincarnation.innerHTML = `
+      <div class="reinc-card">
+        <div class="reinc-cycle">目前第 <b>${state.reincarnation.cycle}</b> 輪</div>
+        <div class="reinc-summary">已取得 ${buffs.research + buffs.materials + buffs.power} 個輪迴加成</div>
+      </div>
+      <div class="reinc-list">
+        <div class="reinc-row">
+          <span>研究成長倍率</span>
+          <b>${buffs.research} 層</b>
+          <span>目前每階 x${researchStageGrowthFactor(state).toFixed(2)}，比原始少 ${researchReduction}%</span>
+        </div>
+        <div class="reinc-row">
+          <span>素材掉落</span>
+          <b>${buffs.materials} 層</b>
+          <span>目前 x${materialDropMultiplier(state).toFixed(2)}</span>
+        </div>
+        <div class="reinc-row">
+          <span>全能力</span>
+          <b>${buffs.power} 層</b>
+          <span>目前 x${powerMultiplier(state).toFixed(2)}</span>
+        </div>
+      </div>
+      ${actions}
+    `;
+  }
+
+  private renderVictoryModal(state: GameState | null): void {
+    if (!state?.reincarnation.victoryPending) {
+      this.victoryModalEl.hidden = true;
+      this.victoryModalEl.innerHTML = "";
+      return;
+    }
+
+    this.victoryModalEl.innerHTML = `
+      <div class="modal-card modal-card--victory" role="dialog" aria-modal="true" aria-label="通關">
+        <div class="modal-head">
+          <h3>恭喜通關</h3>
+        </div>
+        <p class="victory-copy">鍛爐已經燒到盡頭，最後的敵人也倒下了。你完成了這條工廠迴圈，現在可以帶著一縷餘燼走進下一輪。</p>
+        <div class="victory-actions">
+          <button class="mc-main-btn" data-act="victoryContinue">確認，繼續遊玩</button>
+        </div>
+        <p class="hint">如果要開始下一輪，關閉後可到「輪迴」分頁選擇永久加成。</p>
+      </div>
+    `;
+    this.victoryModalEl.hidden = false;
   }
 
   private renderWarehouse(state: GameState): void {
@@ -1079,7 +1212,7 @@ function statLabel(k: keyof StatBlock, v: number): string {
     haste: "攻速",
     hpRegen: "每秒回血",
     dmgReductionPct: "減傷",
-    critDmgTakenReductionPct: "減暴傷承受",
+    blockChance: "格檔率",
   };
   const pctKeys: (keyof StatBlock)[] = [
     "localPhysPct",
@@ -1087,7 +1220,7 @@ function statLabel(k: keyof StatBlock, v: number): string {
     "critMult",
     "haste",
     "dmgReductionPct",
-    "critDmgTakenReductionPct",
+    "blockChance",
   ];
   const val = pctKeys.includes(k) ? `${Math.round(v * 100)}%` : fmtNum(v);
   return `+${val} ${names[k]}`;
@@ -1096,4 +1229,33 @@ function statLabel(k: keyof StatBlock, v: number): string {
 /** 撟喲?詨潭撘?嚗??其??亙?湔嚗＊蝷箔?敺?撣嗅??賊?嚗?*/
 function fmtNum(n: number): string {
   return `${Math.round(n)}`;
+}
+
+function summarizeStageEnemies(stage: StageDef): string {
+  const names = new Set<string>();
+  for (const wave of stage.waves) {
+    for (const enemy of wave) names.add(enemy.name);
+  }
+  return `敵人：${Array.from(names).join("、")}`;
+}
+
+function summarizeStageDrops(stage: StageDef): string {
+  const dropMap = new Map<string, { icon: string; min: number; max: number }>();
+  for (const wave of stage.waves) {
+    for (const enemy of wave) {
+      for (const drop of enemy.drops) {
+        const current = dropMap.get(drop.material);
+        const icon = MATERIALS[drop.material]?.icon ?? "";
+        if (!current) {
+          dropMap.set(drop.material, { icon, min: drop.min, max: drop.max });
+          continue;
+        }
+        current.min = Math.min(current.min, drop.min);
+        current.max = Math.max(current.max, drop.max);
+      }
+    }
+  }
+  return `掉落：${Array.from(dropMap.values())
+    .map((drop) => `${drop.icon}${drop.min}-${drop.max}`)
+    .join("、")}`;
 }

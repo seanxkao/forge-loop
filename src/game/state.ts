@@ -36,6 +36,12 @@ export function createInitialState(): GameState {
       armor: { count: 1, active: 1, progress: 0, queue: 0, idle: false },
       accessory: { count: 1, active: 1, progress: 0, queue: 0, idle: false },
     },
+    reincarnation: {
+      cycle: 1,
+      buffs: { research: 0, materials: 0, power: 0 },
+      victoryPending: false,
+      gameCleared: false,
+    },
     nextEquipId: 1,
   };
 }

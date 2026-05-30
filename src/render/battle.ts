@@ -64,7 +64,7 @@ export class BattleRenderer {
     });
   }
 
-  enemyAttacked(dmg: number): void {
+  enemyAttacked(dmg: number, blocked = false): void {
     this.enemyLunge = 1;
     this.heroFlash = 1;
     this.popups.push({
@@ -74,8 +74,8 @@ export class BattleRenderer {
       baseY: GROUND_Y - 60,
       driftX: 0,
       rise: 28,
-      text: `${dmg}`,
-      color: "#ff5c5c",
+      text: `${blocked ? "🛡 " : ""}${dmg}`,
+      color: blocked ? "rgba(255, 92, 92, 0.68)" : "#ff5c5c",
       life: 0.9,
       totalLife: 0.9,
       big: false,

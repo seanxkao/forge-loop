@@ -2,12 +2,47 @@ import type { GameState } from "./types.ts";
 import { SAVE_VERSION, createInitialState } from "./state.ts";
 
 const KEY = "forge-loop-save";
+const LEGACY_BLOCK_STAT = "critDmgTakenReductionPct";
+const BLOCK_STAT = "blockChance";
 
 export function save(state: GameState): void {
   try {
     localStorage.setItem(KEY, JSON.stringify(state));
   } catch {
     // localStorage 不可用 / 配額滿，靜默忽略
+  }
+}
+
+function normalizeLegacyBlockStat(state: GameState): void {
+  const remapAffixes = (list: { affixes: Array<{ stat: string }> }[]) => {
+    for (const eq of list) {
+      for (const affix of eq.affixes) {
+        if (affix.stat === LEGACY_BLOCK_STAT) affix.stat = BLOCK_STAT;
+      }
+    }
+  };
+
+  remapAffixes(state.equipmentInv);
+  remapAffixes(state.warehouseInv);
+  remapAffixes(
+    Object.values(state.equipped).filter((eq): eq is NonNullable<typeof eq> => eq !== null),
+  );
+
+  for (const slot of Object.keys(state.filters) as Array<keyof typeof state.filters>) {
+    for (const entry of state.filters[slot]) {
+      if ((entry.stat as string) === LEGACY_BLOCK_STAT) {
+        entry.stat = BLOCK_STAT as typeof entry.stat;
+      }
+    }
+  }
+
+  if (LEGACY_BLOCK_STAT in state.research.points) {
+    state.research.points[BLOCK_STAT] = state.research.points[LEGACY_BLOCK_STAT];
+    delete state.research.points[LEGACY_BLOCK_STAT];
+  }
+  if (LEGACY_BLOCK_STAT in state.research.stages) {
+    state.research.stages[BLOCK_STAT] = state.research.stages[LEGACY_BLOCK_STAT];
+    delete state.research.stages[LEGACY_BLOCK_STAT];
   }
 }
 
@@ -40,6 +75,7 @@ export function load(): GameState {
     if (!raw) return createInitialState();
     // 不因改版直接清檔：以現行 schema 深層合併遷移舊檔
     const migrated = migrate(JSON.parse(raw), createInitialState()) as GameState;
+    normalizeLegacyBlockStat(migrated);
     migrated.version = SAVE_VERSION;
     return migrated;
   } catch {
