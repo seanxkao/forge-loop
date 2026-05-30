@@ -1,0 +1,177 @@
+[2m上午2:37:50[22m [31m[1m[vite][22m[39m [31m[2m(client)[22m[39m Pre-transform error: Transform failed with 1 error:
+D:/Git/ForgeLoop/src/ui/ui.ts:253:67: ERROR: Unexpected ";"
+  Plugin: [35mvite:esbuild[39m
+  File: [36mD:/Git/ForgeLoop/src/ui/ui.ts[39m:253:67
+[33m  
+  [33mUnexpected ";"[33m
+  251|      const caret = this.root.querySelector("[data-filter-caret]") as HTMLElement | null;
+  252|      if (body) body.style.display = this.filterCollapsed ? "none" : "";
+  253|      if (caret) caret.textContent = this.filterCollapsed ? "?? : "??;
+     |                                                                     ^
+  254|    }
+  255|  
+  [39m
+[2m上午2:37:51[22m [31m[1m[vite][22m[39m [31mInternal server error: Transform failed with 1 error:
+D:/Git/ForgeLoop/src/ui/ui.ts:253:67: ERROR: Unexpected ";"[39m
+  Plugin: [35mvite:esbuild[39m
+  File: [36mD:/Git/ForgeLoop/src/ui/ui.ts[39m:253:67
+[33m  
+  [33mUnexpected ";"[33m
+  251|      const caret = this.root.querySelector("[data-filter-caret]") as HTMLElement | null;
+  252|      if (body) body.style.display = this.filterCollapsed ? "none" : "";
+  253|      if (caret) caret.textContent = this.filterCollapsed ? "?? : "??;
+     |                                                                     ^
+  254|    }
+  255|  
+  [39m
+      at failureErrorWithLog (D:\Git\ForgeLoop\node_modules\esbuild\lib\main.js:1467:15)
+      at D:\Git\ForgeLoop\node_modules\esbuild\lib\main.js:736:50
+      at responseCallbacks.<computed> (D:\Git\ForgeLoop\node_modules\esbuild\lib\main.js:603:9)
+      at handleIncomingPacket (D:\Git\ForgeLoop\node_modules\esbuild\lib\main.js:658:12)
+      at Socket.readFromStdout (D:\Git\ForgeLoop\node_modules\esbuild\lib\main.js:581:7)
+      at Socket.emit (node:events:518:28)
+      at addChunk (node:internal/streams/readable:559:12)
+      at readableAddChunkPushByteMode (node:internal/streams/readable:510:3)
+      at Readable.push (node:internal/streams/readable:390:5)
+      at Pipe.onStreamRead (node:internal/stream_base_commons:190:23)
+[2m上午2:37:52[22m [31m[1m[vite][22m[39m [31mInternal server error: Transform failed with 1 error:
+D:/Git/ForgeLoop/src/ui/ui.ts:253:67: ERROR: Unexpected ";"[39m
+  Plugin: [35mvite:esbuild[39m
+  File: [36mD:/Git/ForgeLoop/src/ui/ui.ts[39m:253:67
+[33m  
+  [33mUnexpected ";"[33m
+  251|      const caret = this.root.querySelector("[data-filter-caret]") as HTMLElement | null;
+  252|      if (body) body.style.display = this.filterCollapsed ? "none" : "";
+  253|      if (caret) caret.textContent = this.filterCollapsed ? "?? : "??;
+     |                                                                     ^
+  254|    }
+  255|  
+  [39m
+      at failureErrorWithLog (D:\Git\ForgeLoop\node_modules\esbuild\lib\main.js:1467:15)
+      at D:\Git\ForgeLoop\node_modules\esbuild\lib\main.js:736:50
+      at responseCallbacks.<computed> (D:\Git\ForgeLoop\node_modules\esbuild\lib\main.js:603:9)
+      at handleIncomingPacket (D:\Git\ForgeLoop\node_modules\esbuild\lib\main.js:658:12)
+      at Socket.readFromStdout (D:\Git\ForgeLoop\node_modules\esbuild\lib\main.js:581:7)
+      at Socket.emit (node:events:518:28)
+      at addChunk (node:internal/streams/readable:559:12)
+      at readableAddChunkPushByteMode (node:internal/streams/readable:510:3)
+      at Readable.push (node:internal/streams/readable:390:5)
+      at Pipe.onStreamRead (node:internal/stream_base_commons:190:23)
+[2m上午2:38:15[22m [31m[1m[vite][22m[39m [31m[2m(client)[22m[39m Pre-transform error: Transform failed with 1 error:
+D:/Git/ForgeLoop/src/ui/ui.ts:253:67: ERROR: Unexpected ";"
+  Plugin: [35mvite:esbuild[39m
+  File: [36mD:/Git/ForgeLoop/src/ui/ui.ts[39m:253:67
+[33m  
+  [33mUnexpected ";"[33m
+  251|      const caret = this.root.querySelector("[data-filter-caret]") as HTMLElement | null;
+  252|      if (body) body.style.display = this.filterCollapsed ? "none" : "";
+  253|      if (caret) caret.textContent = this.filterCollapsed ? "?? : "??;
+     |                                                                     ^
+  254|    }
+  255|  
+  [39m
+[2m上午2:38:16[22m [31m[1m[vite][22m[39m [31mInternal server error: Transform failed with 1 error:
+D:/Git/ForgeLoop/src/ui/ui.ts:253:67: ERROR: Unexpected ";"[39m
+  Plugin: [35mvite:esbuild[39m
+  File: [36mD:/Git/ForgeLoop/src/ui/ui.ts[39m:253:67
+[33m  
+  [33mUnexpected ";"[33m
+  251|      const caret = this.root.querySelector("[data-filter-caret]") as HTMLElement | null;
+  252|      if (body) body.style.display = this.filterCollapsed ? "none" : "";
+  253|      if (caret) caret.textContent = this.filterCollapsed ? "?? : "??;
+     |                                                                     ^
+  254|    }
+  255|  
+  [39m
+      at failureErrorWithLog (D:\Git\ForgeLoop\node_modules\esbuild\lib\main.js:1467:15)
+      at D:\Git\ForgeLoop\node_modules\esbuild\lib\main.js:736:50
+      at responseCallbacks.<computed> (D:\Git\ForgeLoop\node_modules\esbuild\lib\main.js:603:9)
+      at handleIncomingPacket (D:\Git\ForgeLoop\node_modules\esbuild\lib\main.js:658:12)
+      at Socket.readFromStdout (D:\Git\ForgeLoop\node_modules\esbuild\lib\main.js:581:7)
+      at Socket.emit (node:events:518:28)
+      at addChunk (node:internal/streams/readable:559:12)
+      at readableAddChunkPushByteMode (node:internal/streams/readable:510:3)
+      at Readable.push (node:internal/streams/readable:390:5)
+      at Pipe.onStreamRead (node:internal/stream_base_commons:190:23)
+[2m上午2:38:16[22m [31m[1m[vite][22m[39m [31mInternal server error: Transform failed with 1 error:
+D:/Git/ForgeLoop/src/ui/ui.ts:253:67: ERROR: Unexpected ";"[39m
+  Plugin: [35mvite:esbuild[39m
+  File: [36mD:/Git/ForgeLoop/src/ui/ui.ts[39m:253:67
+[33m  
+  [33mUnexpected ";"[33m
+  251|      const caret = this.root.querySelector("[data-filter-caret]") as HTMLElement | null;
+  252|      if (body) body.style.display = this.filterCollapsed ? "none" : "";
+  253|      if (caret) caret.textContent = this.filterCollapsed ? "?? : "??;
+     |                                                                     ^
+  254|    }
+  255|  
+  [39m
+      at failureErrorWithLog (D:\Git\ForgeLoop\node_modules\esbuild\lib\main.js:1467:15)
+      at D:\Git\ForgeLoop\node_modules\esbuild\lib\main.js:736:50
+      at responseCallbacks.<computed> (D:\Git\ForgeLoop\node_modules\esbuild\lib\main.js:603:9)
+      at handleIncomingPacket (D:\Git\ForgeLoop\node_modules\esbuild\lib\main.js:658:12)
+      at Socket.readFromStdout (D:\Git\ForgeLoop\node_modules\esbuild\lib\main.js:581:7)
+      at Socket.emit (node:events:518:28)
+      at addChunk (node:internal/streams/readable:559:12)
+      at readableAddChunkPushByteMode (node:internal/streams/readable:510:3)
+      at Readable.push (node:internal/streams/readable:390:5)
+      at Pipe.onStreamRead (node:internal/stream_base_commons:190:23)
+[2m上午2:39:42[22m [31m[1m[vite][22m[39m [31m[2m(client)[22m[39m Pre-transform error: Transform failed with 1 error:
+D:/Git/ForgeLoop/src/ui/ui.ts:544:31: ERROR: Expected ":" but found "{"
+  Plugin: [35mvite:esbuild[39m
+  File: [36mD:/Git/ForgeLoop/src/ui/ui.ts[39m:544:31
+[33m  
+  [33mExpected ":" but found "{"[33m
+  542|        const disp = prev + (pts - prev) * 0.18; // easing
+  543|        this.researchDisp[t.stat] = disp;
+  544|        t.bonus.textContent = `+${stages * 5}%`;
+     |                                 ^
+  545|        t.prog.textContent = `${Math.floor(disp)}/${cost}`;
+  546|        t.fill.style.width = `${Math.round(Math.min(1, disp / cost) * 100)}%`;
+  [39m
+[2m上午2:39:43[22m [31m[1m[vite][22m[39m [31mInternal server error: Transform failed with 1 error:
+D:/Git/ForgeLoop/src/ui/ui.ts:544:31: ERROR: Expected ":" but found "{"[39m
+  Plugin: [35mvite:esbuild[39m
+  File: [36mD:/Git/ForgeLoop/src/ui/ui.ts[39m:544:31
+[33m  
+  [33mExpected ":" but found "{"[33m
+  542|        const disp = prev + (pts - prev) * 0.18; // easing
+  543|        this.researchDisp[t.stat] = disp;
+  544|        t.bonus.textContent = `+${stages * 5}%`;
+     |                                 ^
+  545|        t.prog.textContent = `${Math.floor(disp)}/${cost}`;
+  546|        t.fill.style.width = `${Math.round(Math.min(1, disp / cost) * 100)}%`;
+  [39m
+      at failureErrorWithLog (D:\Git\ForgeLoop\node_modules\esbuild\lib\main.js:1467:15)
+      at D:\Git\ForgeLoop\node_modules\esbuild\lib\main.js:736:50
+      at responseCallbacks.<computed> (D:\Git\ForgeLoop\node_modules\esbuild\lib\main.js:603:9)
+      at handleIncomingPacket (D:\Git\ForgeLoop\node_modules\esbuild\lib\main.js:658:12)
+      at Socket.readFromStdout (D:\Git\ForgeLoop\node_modules\esbuild\lib\main.js:581:7)
+      at Socket.emit (node:events:518:28)
+      at addChunk (node:internal/streams/readable:559:12)
+      at readableAddChunkPushByteMode (node:internal/streams/readable:510:3)
+      at Readable.push (node:internal/streams/readable:390:5)
+      at Pipe.onStreamRead (node:internal/stream_base_commons:190:23)
+[2m上午2:39:43[22m [31m[1m[vite][22m[39m [31mInternal server error: Transform failed with 1 error:
+D:/Git/ForgeLoop/src/ui/ui.ts:544:31: ERROR: Expected ":" but found "{"[39m
+  Plugin: [35mvite:esbuild[39m
+  File: [36mD:/Git/ForgeLoop/src/ui/ui.ts[39m:544:31
+[33m  
+  [33mExpected ":" but found "{"[33m
+  542|        const disp = prev + (pts - prev) * 0.18; // easing
+  543|        this.researchDisp[t.stat] = disp;
+  544|        t.bonus.textContent = `+${stages * 5}%`;
+     |                                 ^
+  545|        t.prog.textContent = `${Math.floor(disp)}/${cost}`;
+  546|        t.fill.style.width = `${Math.round(Math.min(1, disp / cost) * 100)}%`;
+  [39m
+      at failureErrorWithLog (D:\Git\ForgeLoop\node_modules\esbuild\lib\main.js:1467:15)
+      at D:\Git\ForgeLoop\node_modules\esbuild\lib\main.js:736:50
+      at responseCallbacks.<computed> (D:\Git\ForgeLoop\node_modules\esbuild\lib\main.js:603:9)
+      at handleIncomingPacket (D:\Git\ForgeLoop\node_modules\esbuild\lib\main.js:658:12)
+      at Socket.readFromStdout (D:\Git\ForgeLoop\node_modules\esbuild\lib\main.js:581:7)
+      at Socket.emit (node:events:518:28)
+      at addChunk (node:internal/streams/readable:559:12)
+      at readableAddChunkPushByteMode (node:internal/streams/readable:510:3)
+      at Readable.push (node:internal/streams/readable:390:5)
+      at Pipe.onStreamRead (node:internal/stream_base_commons:190:23)

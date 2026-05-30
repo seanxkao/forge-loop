@@ -1,7 +1,9 @@
-import type { GameState, StatBlock, Equipment, Slot } from "../game/types.ts";
+﻿import type { GameState, StatBlock, Equipment, Slot } from "../game/types.ts";
 import { MATERIALS, STAGES, MACHINES, RECIPES, DISMANTLER, CRAFTERS } from "../game/content.ts";
 import { deriveStats, attackInterval } from "../game/hero.ts";
 import { canAfford } from "../game/inventory.ts";
+import { getEquipmentComparisonRows, getEquipmentSummaryRows } from "../game/equipmentView.ts";
+import { clampTooltipPosition } from "./tooltipPosition.ts";
 import {
   stageCost,
   DISMANTLE_CYCLE,
@@ -42,16 +44,20 @@ const SLOT_NAME: Record<Slot, string> = {
   accessory: "飾品",
 };
 
-/** 背包／倉庫清單最多渲染列數：超過只顯示前 N＋提示，避免大量 DOM 拖慢每幀。 */
+/** ??嚗澈皜?憭葡???賂?頞??芷＊蝷箏? N嚗?蝷綽??踹?憭折? DOM ?瘥???*/
 const INV_RENDER_CAP = 100;
 
-/** 雙層更新：
- *  - refresh()：使用者操作後重建含按鈕的面板，並快取動態節點。
- *  - tick()：每幀只原地更新數值/樣式（不替換節點，避免 hover 閃爍與 click 遺失）。
+/** ?惜?湔嚗?
+ *  - refresh()嚗蝙?刻?雿??遣?急????Ｘ嚗蒂敹怠???蝭暺?
+ *  - tick()嚗?撟?芸??唳?唳??璅??嚗??踵?蝭暺??踹? hover ????click ?箏仃嚗?
  */
 export class UI {
   private activeTab: string | null = null;
+  private activeBagTab: "main" | "warehouse" = "main";
+  private currentState: GameState | null = null;
   private drawerEl!: HTMLElement;
+  private tooltipEl!: HTMLElement;
+  private tooltipKey: string | null = null;
   private panelEls: Record<string, HTMLElement> = {};
   private tabBtnEls: Record<string, HTMLElement> = {};
 
@@ -65,11 +71,12 @@ export class UI {
     filters: HTMLElement;
     equipInv: HTMLElement;
     warehouse: HTMLElement;
+    bagTabs: HTMLElement;
     inventory: HTMLElement;
     research: HTMLElement;
   };
 
-  // 研究分頁 tick() 用快取
+  // ?弦?? tick() ?典翰??
   private dismCountEl!: HTMLElement;
   private dismCraftBtn!: HTMLElement;
   private dismBar!: HTMLElement;
@@ -87,11 +94,11 @@ export class UI {
     prog: HTMLElement;
     btn: HTMLElement;
   }[] = [];
-  private researchDisp: Record<string, number> = {}; // easing 用的顯示值
-  private lastStages: Record<string, number> = {}; // 偵測達標
-  private flashUntil: Record<string, number> = {}; // 閃爍到期時間（performance.now）
+  private researchDisp: Record<string, number> = {}; // easing ?函?憿舐內??
+  private lastStages: Record<string, number> = {}; // ?菜葫??
+  private flashUntil: Record<string, number> = {}; // ???唳???嚗erformance.now嚗?
 
-  // tick() 用的快取節點
+  // tick() ?函?敹怠?蝭暺?
   private machineCards: {
     id: string;
     countEl: HTMLElement;
@@ -99,7 +106,7 @@ export class UI {
     craftBtn: HTMLElement;
     cardEl: HTMLElement;
   }[] = [];
-  // 生產頁的製裝機卡片
+  // ???鋆質?璈??
   private crafterMachineCards: {
     slot: Slot;
     countEl: HTMLElement;
@@ -107,7 +114,7 @@ export class UI {
     craftBtn: HTMLElement;
     cardEl: HTMLElement;
   }[] = [];
-  // 背包頁的製裝訂單列
+  // ????鋆質?閮??
   private orderRows: {
     slot: Slot;
     queueEl: HTMLElement;
@@ -116,9 +123,9 @@ export class UI {
   private heroVals: Record<string, HTMLElement> = {};
   private matVals: Record<string, HTMLElement> = {};
   private matEls: Record<string, HTMLElement> = {};
-  private lastWareLen = -1; // 偵測倉庫被拆解器消耗的變動
-  private lastEquipLen = -1; // 偵測主背包被製裝機產出的變動
-  private lastTickTab: string | null = null; // 偵測分頁切換，切到才補渲染該頁重清單
+  private lastWareLen = -1; // ?菜葫?澈鋡急?閫?瘨?霈?
+  private lastEquipLen = -1; // ?菜葫銝餉??◤鋆質?璈?箇?霈?
+  private lastTickTab: string | null = null; // ?菜葫????嚗??唳?鋆葡?府??皜
 
   constructor(
     private root: HTMLElement,
@@ -158,38 +165,43 @@ export class UI {
             <p class="hint">「製造」增加機台（花素材）、「＋／－」配置運轉台數；機台越多、生產越快。</p>
             <div class="machines" data-zone="machines"></div>
             <h2>製裝機</h2>
-            <p class="hint">消耗中間材料產出裝備；「製造」加台提速、「＋／－」配置運轉。製裝訂單在背包頁設定。</p>
+            <p class="hint">消耗中間材料產出裝備；「製造」加台提速、「＋／－」配置運轉。製裝訂單與過濾器在每台製裝機下方。</p>
             <div class="machines" data-zone="crafters"></div>
           </section>
           <section class="panel-section" data-panel="bag">
             <h2>製裝訂單</h2>
-            <p class="hint">按 ＋N 把件數加入製裝佇列；製裝機（生產頁）會逐件耗材產出，產出走過濾器（符合進背包、否則進倉庫）。</p>
+            <p class="hint">按 ＋N 把件數加入製裝佇列；製裝機會逐件耗材產出，並依過濾器決定放進主背包或倉庫。</p>
             <div class="crafting" data-zone="crafting"></div>
             <div class="collapse-box">
               <div class="collapse-head" data-act="toggleFilters">
                 <span data-filter-caret>▼</span> 過濾器
               </div>
               <div class="collapse-body" data-filter-body>
-                <p class="hint">不符條件的新裝會自動進倉庫；空條件＝全留。</p>
+                <p class="hint">不符條件的新裝會自動進倉庫；空條件代表全留。</p>
                 <div class="filters" data-zone="filters"></div>
                 <button class="btn-sweep" data-act="filterSweep">套用到現有背包</button>
               </div>
             </div>
             <h2>裝備庫存</h2>
-            <p class="hint">右鍵裝備可一鍵在背包／倉庫間互轉。</p>
+            <p class="hint">右鍵裝備可一鍵在主背包與倉庫間互轉。</p>
+            <div class="bag-subtabs" data-zone="bagTabs"></div>
             <div class="equip-inv" data-zone="equipInv"></div>
             <h2>倉庫</h2>
             <div class="warehouse" data-zone="warehouse"></div>
           </section>
           <section class="panel-section" data-panel="research">
             <h2>研究</h2>
-            <p class="hint">啟動拆解器會自動銷毀倉庫裝備；T3 以上的詞綴轉成該類研究值，每階永久 +5% 該類詞綴強度（下階成本翻倍）。</p>
+            <p class="hint">啟動拆解器會自動銷毀倉庫裝備；T3 以上的詞綴會轉成研究值。詞綴研究每階永久 +10%，基底研究每階永久 +20%。</p>
             <div class="research" data-zone="research"></div>
           </section>
         </aside>
       </div>
     `;
     this.root.querySelector(".canvas-wrap")!.appendChild(this.canvas);
+    this.tooltipEl = document.createElement("div");
+    this.tooltipEl.className = "equip-tooltip";
+    this.tooltipEl.hidden = true;
+    document.body.appendChild(this.tooltipEl);
     const z = (n: string) =>
       this.root.querySelector(`[data-zone="${n}"]`) as HTMLElement;
     this.els = {
@@ -202,10 +214,16 @@ export class UI {
       filters: z("filters"),
       equipInv: z("equipInv"),
       warehouse: z("warehouse"),
+      bagTabs: z("bagTabs"),
       inventory: z("inventory"),
       research: z("research"),
     };
-    // 抽屜與分頁鈕參照
+    this.els.crafting.style.display = "none";
+    this.els.filters.style.display = "none";
+    this.els.crafting.nextElementSibling?.setAttribute("style", "display:none");
+    this.els.crafting.previousElementSibling?.setAttribute("style", "display:none");
+    this.els.crafting.previousElementSibling?.previousElementSibling?.setAttribute("style", "display:none");
+    // ?賢??????
     this.drawerEl = this.root.querySelector("[data-drawer]") as HTMLElement;
     this.panelEls = {};
     this.root
@@ -215,25 +233,27 @@ export class UI {
     this.root
       .querySelectorAll<HTMLElement>(".tab-btn")
       .forEach((el) => (this.tabBtnEls[el.dataset.arg!] = el));
-    // 結構靜態、永不重建的面板只建一次
+    // 蝯????偶銝?撱箇??Ｘ?芸遣銝甈?
     this.buildHero();
     this.buildInventory();
     this.root.addEventListener("click", (e) => this.onClick(e));
     this.root.addEventListener("contextmenu", (e) => this.onContextMenu(e));
+    this.root.addEventListener("mousemove", (e) => this.onHoverMove(e));
+    this.root.addEventListener("mouseleave", () => this.hideTooltip());
   }
 
   private filterCollapsed = false;
 
-  /** 收合／展開過濾器區。 */
+  /** ?嗅?嚗???瞈曉???*/
   private toggleFilters(): void {
     this.filterCollapsed = !this.filterCollapsed;
     const body = this.root.querySelector("[data-filter-body]") as HTMLElement | null;
     const caret = this.root.querySelector("[data-filter-caret]") as HTMLElement | null;
     if (body) body.style.display = this.filterCollapsed ? "none" : "";
-    if (caret) caret.textContent = this.filterCollapsed ? "▶" : "▼";
+    if (caret) caret.textContent = this.filterCollapsed ? "▸" : "▾";
   }
 
-  /** 切換側分頁抽屜：再點同一頁則收起。 */
+  /** ???游??撅????????嗉絲??*/
   private setTab(tab: string): void {
     this.activeTab = this.activeTab === tab ? null : tab;
     this.drawerEl.classList.toggle("open", this.activeTab !== null);
@@ -245,7 +265,7 @@ export class UI {
     }
   }
 
-  /** 右鍵裝備：一鍵在主背包／倉庫間互轉。 */
+  /** ?喲鋆?嚗??萄銝餉????澈??頧?*/
   private onContextMenu(e: MouseEvent): void {
     const t = (e.target as HTMLElement).closest("[data-uid]") as HTMLElement | null;
     if (!t) return;
@@ -253,6 +273,70 @@ export class UI {
     const uid = Number(t.dataset.uid);
     if (t.dataset.bag === "ware") this.cb.onFromWarehouse(uid);
     else this.cb.onToWarehouse(uid);
+  }
+
+  private onHoverMove(e: MouseEvent): void {
+    const target = (e.target as HTMLElement).closest("[data-eqtip]") as HTMLElement | null;
+    if (!target || !this.currentState) {
+      this.hideTooltip();
+      return;
+    }
+    const eq = this.resolveTooltipEquipment(target, this.currentState);
+    if (!eq) {
+      this.hideTooltip();
+      return;
+    }
+    const key = target.dataset.eqtip ?? "";
+    if (key !== this.tooltipKey) {
+      this.tooltipKey = key;
+      this.renderTooltip(eq, this.currentState);
+    }
+    this.positionTooltip(e.clientX, e.clientY);
+  }
+
+  private resolveTooltipEquipment(target: HTMLElement, state: GameState): Equipment | null {
+    const slot = target.dataset.eqslot as Slot | undefined;
+    if (slot) return state.equipped[slot];
+
+    const uid = Number(target.dataset.uid);
+    if (!Number.isFinite(uid)) return null;
+    if (target.dataset.bag === "ware") {
+      return state.warehouseInv.find((eq) => eq.uid === uid) ?? null;
+    }
+    return state.equipmentInv.find((eq) => eq.uid === uid) ?? null;
+  }
+
+  private renderTooltip(eq: Equipment, state: GameState): void {
+    const equipped = state.equipped[eq.slot];
+    const compareTarget = equipped?.uid === eq.uid ? null : equipped;
+    const rows = getEquipmentComparisonRows(state, eq, compareTarget);
+    this.tooltipEl.innerHTML = `
+      <div class="equip-tooltip__title">${eq.icon} ${eq.name}</div>
+      <div class="equip-tooltip__subtitle">${
+        compareTarget ? `對比目前裝備：${compareTarget.icon} ${compareTarget.name}` : "目前裝備"
+      }</div>
+      <div class="equip-tooltip__rows">
+        ${rows.map((row) => renderTooltipRow(row)).join("")}
+      </div>
+      <div class="equip-tooltip__detail">${describeEquip(eq, state)}</div>
+    `;
+    this.tooltipEl.hidden = false;
+  }
+
+  private positionTooltip(x: number, y: number): void {
+    const { width, height } = this.tooltipEl.getBoundingClientRect();
+    const pos = clampTooltipPosition(
+      { x, y },
+      { width, height },
+      { width: window.innerWidth, height: window.innerHeight },
+    );
+    this.tooltipEl.style.left = `${pos.left}px`;
+    this.tooltipEl.style.top = `${pos.top}px`;
+  }
+
+  private hideTooltip(): void {
+    this.tooltipKey = null;
+    this.tooltipEl.hidden = true;
   }
 
   private onClick(e: MouseEvent): void {
@@ -311,15 +395,23 @@ export class UI {
       case "fromWare":
         this.cb.onFromWarehouse(Number(arg));
         break;
+      case "bagTab":
+        this.activeBagTab = arg === "warehouse" ? "warehouse" : "main";
+        if (this.currentState) {
+          this.renderBagTabs();
+          this.renderEquipInv(this.currentState);
+          this.renderWarehouse(this.currentState);
+        }
+        break;
       case "filterAdd": {
         const stat = (
-          this.els.filters.querySelector(
+          this.els.crafters.querySelector(
             `[data-fstat="${arg}"]`,
           ) as HTMLSelectElement
         ).value;
         const tier = Number(
           (
-            this.els.filters.querySelector(
+            this.els.crafters.querySelector(
               `[data-ftier="${arg}"]`,
             ) as HTMLSelectElement
           ).value,
@@ -350,24 +442,27 @@ export class UI {
     }
   }
 
-  /** 使用者操作後呼叫：重建含按鈕的面板、重新快取，並跑一次 live 更新。 */
+  /** 雿輻??雿??澆嚗?撱箏????踴??啣翰??銝西?銝甈?live ?湔??*/
   refresh(state: GameState): void {
+    this.currentState = state;
     this.renderStages(state);
     this.renderEquipped(state);
     this.renderMachines(state);
     this.renderCrafterMachines(state);
     this.renderOrders(state);
     this.renderFilters(state);
+    this.renderBagTabs();
     this.renderEquipInv(state);
     this.renderWarehouse(state);
     this.renderResearch();
     this.tick(state);
   }
 
-  /** 每幀呼叫：只原地更新數值與樣式，不替換任何節點。 */
+  /** 瘥??澆嚗??湔?詨潸?璅??嚗??踵?隞颱?蝭暺?*/
   tick(state: GameState): void {
+    this.currentState = state;
     const s = deriveStats(state);
-    // 英雄屬性
+    // ?梢?撅祆?
     const setHV = (k: string, v: string) => {
       const el = this.heroVals[k];
       if (el) el.textContent = v;
@@ -382,14 +477,14 @@ export class UI {
     setHV("dr", `${Math.round(s.dmgReductionPct * 100)}%`);
     setHV("cdr", `${Math.round(s.critDmgTakenReductionPct * 100)}%`);
 
-    // 素材數量
+    // 蝝??賊?
     for (const id in this.matVals) {
       const n = state.inventory[id] ?? 0;
       this.matVals[id].textContent = `${n}`;
       this.matEls[id].classList.toggle("dim", n === 0);
     }
 
-    // 機台卡片：運轉/總數、進度條、缺料、製造按鈕買得起與否
+    // 璈?∠?嚗?頧?蝮賣?脣漲璇撩?ˊ???眺敺絲?
     for (const c of this.machineCards) {
       const def = MACHINES[c.id];
       const st = state.machines[c.id];
@@ -400,7 +495,7 @@ export class UI {
       c.cardEl.classList.toggle("idle", !!st?.idle);
       c.craftBtn.classList.toggle("poor", !canAfford(state, def.buildCost));
     }
-    // 生產頁製裝機卡片：運轉/總數、進度條、缺料紅標、建造按鈕買得起與否
+    // ??ˊ鋆??∠?嚗?頧?蝮賣?脣漲璇撩??璅遣???眺敺絲?
     for (const c of this.crafterMachineCards) {
       const cr = CRAFTERS[c.slot];
       const st = state.crafters[c.slot];
@@ -411,7 +506,7 @@ export class UI {
       c.cardEl.classList.toggle("idle", !!st?.idle);
       c.craftBtn.classList.toggle("poor", !canAfford(state, cr.buildCost));
     }
-    // 背包頁製裝訂單列：佇列數、入列按鈕買得起與否
+    // ???ˊ鋆??桀?嚗??????眺敺絲?
     for (const o of this.orderRows) {
       const st = state.crafters[o.slot];
       o.queueEl.textContent = `${st?.queue ?? 0}`;
@@ -419,8 +514,8 @@ export class UI {
       for (const b of o.enqueueBtns) b.classList.toggle("poor", poorMat);
     }
 
-    // 研究分頁：拆解機 / 研究軌 / 基底研究。含 O(N) 的可拆計數與基底件數掃描，
-    // 故只在研究分頁開著時才更新（其餘分頁此面板隱藏，免做白工）。
+    // ?弦??嚗?閫?? / ?弦頠?/ ?箏??弦? O(N) ????貉??箏?隞嗆??嚗?
+    // ??函?蝛嗅???????堆??園???甇日?輸?????賢極嚗?
     const now = performance.now();
     if (this.activeTab === "research") {
     const dm = state.dismantler;
@@ -430,14 +525,14 @@ export class UI {
     this.dismCraftBtn.classList.toggle("poor", !canAfford(state, DISMANTLER.buildCost));
     const dcount = dismantleableCount(state);
     this.dismStatus.textContent = dcount
-      ? `可拆 ${dcount} 件（含 T3+ 詞綴）`
-      : "無可拆裝備（需 T3+ 詞綴）";
+      ? `可拆 ${dcount} 件 T3+ 裝備`
+      : "沒有可拆的 T3+ 裝備";
     for (const t of this.researchRows) {
       const stages = state.research.stages[t.stat] ?? 0;
       const pts = state.research.points[t.stat] ?? 0;
       const cost = stageCost(stages);
       if (this.lastStages[t.stat] === undefined) this.lastStages[t.stat] = stages;
-      // 達標：先把進度條衝滿、觸發閃爍，再 ease 回落到新階零頭
+      // ??嚗??脣漲璇?皛踴孛?潮?????ease ??唳???
       if (stages !== this.lastStages[t.stat]) {
         this.researchDisp[t.stat] = stageCost(this.lastStages[t.stat]);
         this.lastStages[t.stat] = stages;
@@ -446,24 +541,24 @@ export class UI {
       const prev = this.researchDisp[t.stat] ?? pts;
       const disp = prev + (pts - prev) * 0.18; // easing
       this.researchDisp[t.stat] = disp;
-      t.bonus.textContent = `+${stages * 5}%`;
+      t.bonus.textContent = `+${stages * 10}%`;
       t.prog.textContent = `${Math.floor(disp)}/${cost}`;
       t.fill.style.width = `${Math.round(Math.min(1, disp / cost) * 100)}%`;
       t.row.classList.toggle("flash", (this.flashUntil[t.stat] ?? 0) > now);
     }
-    // 基底研究：加成%、可消耗/所需件數、按鈕可否
+    // ?箏??弦嚗????瘨???隞嗆?????
     for (const b of this.baseRows) {
       const stages = state.baseResearch[b.slot] ?? 0;
       const need = baseStageCost(stages);
       const avail = baseItemsAvailable(state, b.slot);
       b.bonus.textContent = `+${Math.round(baseBonus(state, b.slot) * 100)}%`;
-      b.prog.textContent = `${avail}/${need} 件`;
+      b.prog.textContent = `${avail}/${need} 件可投入`;
       b.btn.classList.toggle("poor", avail < need);
     }
-    } // end research 分頁
+    } // end research ??
 
-    // 背包分頁：清單可能很大（尤其倉庫），故只在該分頁開著時才隨數量變動重建；
-    // 切換到背包分頁時也補渲染一次，避免在別頁期間的變動沒反映。
+    // ????嚗??桀?賢?憭改?撠文?澈嚗???刻府???????冽????撱綽?
+    // ???啗?????銋?皜脫?銝甈∴??踹??典????霈?瘝???
     const tabSwitched = this.activeTab !== this.lastTickTab;
     this.lastTickTab = this.activeTab;
     if (this.activeTab === "bag") {
@@ -476,20 +571,20 @@ export class UI {
     }
   }
 
-  // ---- 只建一次的靜態面板 ----
+  // ---- ?芸遣銝甈∠????Ｘ ----
 
   private buildHero(): void {
     this.els.hero.innerHTML = `
       <div class="stat-grid">
-        <span>❤️ 生命</span><b data-hv="hp"></b>
-        <span>⚔️ 攻擊</span><b data-hv="atk"></b>
-        <span>🛡️ 防禦</span><b data-hv="def"></b>
-        <span>⏱️ 攻速</span><b data-hv="spd"></b>
-        <span>🎯 暴擊</span><b data-hv="crit"></b>
-        <span>💥 暴傷</span><b data-hv="critm"></b>
-        <span>💚 回血</span><b data-hv="regen"></b>
-        <span>🪨 減傷</span><b data-hv="dr"></b>
-        <span>🛡️ 減暴傷</span><b data-hv="cdr"></b>
+        <span>生命</span><b data-hv="hp"></b>
+        <span>點傷</span><b data-hv="atk"></b>
+        <span>防禦</span><b data-hv="def"></b>
+        <span>攻速</span><b data-hv="spd"></b>
+        <span>暴擊</span><b data-hv="crit"></b>
+        <span>暴傷</span><b data-hv="critm"></b>
+        <span>回血</span><b data-hv="regen"></b>
+        <span>減傷</span><b data-hv="dr"></b>
+        <span>減暴傷承受</span><b data-hv="cdr"></b>
       </div>`;
     this.heroVals = {};
     this.els.hero.querySelectorAll<HTMLElement>("[data-hv]").forEach((el) => {
@@ -512,7 +607,7 @@ export class UI {
     });
   }
 
-  // ---- 操作後才重建的面板 ----
+  // ---- ??敺??遣???----
 
   private renderStages(state: GameState): void {
     this.els.stages.innerHTML = STAGES.map((s) => {
@@ -528,9 +623,9 @@ export class UI {
       .map((slot) => {
         const eq = state.equipped[slot];
         if (!eq) {
-          return `<div class="eq-slot empty"><span class="slot-tag">${SLOT_NAME[slot]}</span>—</div>`;
+          return `<div class="eq-slot empty"><span class="slot-tag">${SLOT_NAME[slot]}</span>未裝備</div>`;
         }
-        return `<div class="eq-slot"><span class="slot-tag">${SLOT_NAME[slot]}</span>
+        return `<div class="eq-slot" data-eqtip="eq:${slot}" data-eqslot="${slot}"><span class="slot-tag">${SLOT_NAME[slot]}</span>
           <span class="eq-name">${eq.icon} ${eq.name}</span>
           <span class="eq-stats">${describeEquip(eq, state)}</span>
           <button data-act="unequip" data-arg="${slot}">卸下</button></div>`;
@@ -573,7 +668,7 @@ export class UI {
       );
   }
 
-  /** 生產頁：製裝機卡片（比照生產機台，製造／＋－／進度）。 */
+  /** ???鋆質?璈??瘥?璈嚗ˊ??嚗?嚗脣漲嚗?*/
   private renderCrafterMachines(state: GameState): void {
     const slots: Slot[] = ["weapon", "armor", "accessory"];
     this.els.crafters.innerHTML = slots
@@ -583,7 +678,7 @@ export class UI {
         const c = state.crafters[slot];
         const active = c?.active ?? 0;
         const total = c?.count ?? 0;
-        return `<div class="machine-card" data-cmid="${slot}">
+        return `<div class="machine-card crafter-card" data-cmid="${slot}">
           <div class="mc-top">
             <span class="mb-icon">${r.icon}</span>
             <span class="mb-name">${r.name} <span class="mb-own" data-ccount>${active}/${total}</span></span>
@@ -608,9 +703,83 @@ export class UI {
         cardEl: card,
       }),
     );
+    this.orderRows = [];
+    this.els.crafters.querySelectorAll<HTMLElement>("[data-cmid]").forEach((card) => {
+      const slot = card.dataset.cmid as Slot;
+      card.insertAdjacentHTML("beforeend", this.renderCrafterOrder(slot, state));
+      card.insertAdjacentHTML("beforeend", this.renderCrafterFilter(slot, state));
+      const orderRow = card.querySelector<HTMLElement>("[data-oid]");
+      if (orderRow) {
+        this.orderRows.push({
+          slot,
+          queueEl: orderRow.querySelector<HTMLElement>("[data-oqueue]")!,
+          enqueueBtns: Array.from(orderRow.querySelectorAll<HTMLElement>("[data-qty]")),
+        });
+      }
+    });
   }
 
-  /** 背包頁：製裝訂單列（＋N 入列、佇列數、清空）。 */
+  /** 生產頁：製裝訂單列（＋N 入列、佇列數、清空）。 */
+  private renderCrafterOrder(slot: Slot, state: GameState): string {
+    const r = RECIPES[slot];
+    const c = state.crafters[slot];
+    return `<div class="craft-row" data-oid="${slot}">
+      <span class="cb-name">${r.icon} ${r.name}</span>
+      <span class="cb-base">${describeStats(r.base)}</span>
+      <span class="cb-cost">${cost(r.cost)}</span>
+      <span class="cb-queue">佇列 <b data-oqueue>${c?.queue ?? 0}</b></span>
+      <span class="cb-acts">
+        <button class="craft-btn" data-act="craft" data-arg="${slot}" data-qty="1">＋1</button>
+        <button class="craft-btn x10" data-act="craft" data-arg="${slot}" data-qty="10">＋10</button>
+        <button class="craft-btn x10" data-act="craft" data-arg="${slot}" data-qty="100">＋100</button>
+        <button class="craft-btn x10" data-act="craft" data-arg="${slot}" data-qty="1000">＋1000</button>
+        <button class="craft-btn clear" data-act="clearQueue" data-arg="${slot}">清空</button>
+      </span>
+    </div>`;
+  }
+
+  private renderCrafterFilter(slot: Slot, state: GameState): string {
+    const defs = RECIPES[slot].affixPool;
+    const labelOf = (st: string) => defs.find((d) => d.stat === st)?.label ?? st;
+    const entries = state.filters[slot] ?? [];
+    const list = entries.length
+      ? entries
+          .map(
+            (e, i) =>
+              `<span class="fs-entry">${labelOf(e.stat)} ≥ T${e.minTier}
+              <button class="fs-x" data-act="filterDel" data-arg="${slot}:${i}">✕</button></span>`,
+          )
+          .join("")
+      : `<span class="fs-none">尚未設定條件</span>`;
+    const opts = defs.map((d) => `<option value="${d.stat}">${d.label}</option>`).join("");
+    const tiers = Array.from(
+      { length: 8 },
+      (_, k) => `<option value="${k + 1}">T${k + 1} 以上</option>`,
+    ).join("");
+    return `<div class="filter-slot crafter-filter">
+      <div class="fs-head">${SLOT_NAME[slot]} 過濾器</div>
+      <div class="fs-list">${list}</div>
+      <div class="fs-add">
+        <select data-fstat="${slot}">${opts}</select>
+        <select data-ftier="${slot}">${tiers}</select>
+        <button class="fs-add-btn" data-act="filterAdd" data-arg="${slot}">新增條件</button>
+      </div>
+    </div>`;
+  }
+
+  private renderBagTabs(): void {
+    this.els.bagTabs.innerHTML = `
+      <button class="tab-btn${this.activeBagTab === "main" ? " sel" : ""}" data-act="bagTab" data-arg="main">主背包</button>
+      <button class="tab-btn${this.activeBagTab === "warehouse" ? " sel" : ""}" data-act="bagTab" data-arg="warehouse">倉庫</button>
+    `;
+    const warehouseTitle = this.els.warehouse.previousElementSibling as HTMLElement | null;
+    const equipHint = this.els.bagTabs.previousElementSibling as HTMLElement | null;
+    const equipTitle = equipHint?.previousElementSibling as HTMLElement | null;
+    if (warehouseTitle) warehouseTitle.style.display = this.activeBagTab === "warehouse" ? "" : "none";
+    if (equipHint) equipHint.style.display = this.activeBagTab === "main" ? "" : "none";
+    if (equipTitle) equipTitle.style.display = this.activeBagTab === "main" ? "" : "none";
+  }
+
   private renderOrders(state: GameState): void {
     const slots: Slot[] = ["weapon", "armor", "accessory"];
     this.els.crafting.innerHTML = slots
@@ -644,6 +813,7 @@ export class UI {
 
   private renderEquipInv(state: GameState): void {
     this.lastEquipLen = state.equipmentInv.length;
+    this.els.equipInv.style.display = this.activeBagTab === "main" ? "" : "none";
     if (state.equipmentInv.length === 0) {
       this.els.equipInv.innerHTML = `<p class="empty-note">尚無裝備，去製裝吧。</p>`;
       return;
@@ -655,7 +825,7 @@ export class UI {
     const items = state.equipmentInv
       .slice(0, INV_RENDER_CAP)
       .map(
-        (eq) => `<div class="inv-item" data-uid="${eq.uid}" data-bag="main">
+        (eq) => `<div class="inv-item" data-uid="${eq.uid}" data-bag="main" data-eqtip="main:${eq.uid}">
         <span class="ii-name">${eq.icon} ${eq.name} <span class="ii-cnt">${eq.affixes.length}詞</span></span>
         <span class="ii-stats">${describeEquip(eq, state)}</span>
         <span class="ii-btns">
@@ -747,7 +917,7 @@ export class UI {
           ? entries
               .map(
                 (e, i) =>
-                  `<span class="fs-entry">${labelOf(e.stat)} ≥T${e.minTier}
+                  `<span class="fs-entry">${labelOf(e.stat)} ≥ T${e.minTier}
                   <button class="fs-x" data-act="filterDel" data-arg="${slot}:${i}">✕</button></span>`,
               )
               .join("")
@@ -757,7 +927,7 @@ export class UI {
           .join("");
         const tiers = Array.from(
           { length: 8 },
-          (_, k) => `<option value="${k + 1}">≥T${k + 1}</option>`,
+          (_, k) => `<option value="${k + 1}">≥ T${k + 1}</option>`,
         ).join("");
         return `<div class="filter-slot">
           <div class="fs-head">${SLOT_NAME[slot]}</div>
@@ -774,6 +944,7 @@ export class UI {
 
   private renderWarehouse(state: GameState): void {
     this.lastWareLen = state.warehouseInv.length;
+    this.els.warehouse.style.display = this.activeBagTab === "warehouse" ? "" : "none";
     if (state.warehouseInv.length === 0) {
       this.els.warehouse.innerHTML = `<p class="empty-note">倉庫是空的。</p>`;
       return;
@@ -785,7 +956,7 @@ export class UI {
     const items = state.warehouseInv
       .slice(0, INV_RENDER_CAP)
       .map(
-        (eq) => `<div class="inv-item" data-uid="${eq.uid}" data-bag="ware">
+        (eq) => `<div class="inv-item" data-uid="${eq.uid}" data-bag="ware" data-eqtip="ware:${eq.uid}">
         <span class="ii-name">${eq.icon} ${eq.name} <span class="ii-cnt">${eq.affixes.length}詞</span></span>
         <span class="ii-stats">${describeEquip(eq, state)}</span>
         <span class="ii-btns">
@@ -802,9 +973,9 @@ export class UI {
   }
 }
 
-// ---- 格式化輔助 ----
+// ---- ?澆?????----
 
-/** 全部詞綴類型（跨三槽去重），供研究軌列表用。 */
+/** ?券閰韌憿?嚗楊銝局?駁?嚗?靘?蝛嗉??”?具?*/
 function allAffixDefs(): { stat: string; label: string }[] {
   const seen = new Set<string>();
   const out: { stat: string; label: string }[] = [];
@@ -832,7 +1003,13 @@ function describeStats(s: Partial<StatBlock>): string {
 }
 
 function describeEquip(eq: Equipment, state: GameState): string {
-  // 基底：吃基底研究加成（×(1+baseBonus)），有加成則於該行末附 (+X%) 標。
+  const summary = eq.slot === "weapon"
+    ? getEquipmentSummaryRows(state, eq)
+        .slice(0, 1)
+        .map((row) => `${row.label} ${formatViewValue(row.value, row.pct)}`)
+        .join("<br>")
+    : "";
+  // ?箏?嚗??箏??弦??嚗?1+baseBonus)嚗??????潸府銵??(+X%) 璅?
   const baseMult = 1 + baseBonus(state, eq.slot);
   const baseTag =
     baseMult > 1 ? ` <span class="aff-buff">(+${Math.round((baseMult - 1) * 100)}%)</span>` : "";
@@ -840,7 +1017,7 @@ function describeEquip(eq: Equipment, state: GameState): string {
     .map(([k, v]) => statLabel(k as keyof StatBlock, (v as number) * baseMult))
     .join(" ");
   const base = baseStr ? baseStr + baseTag : "";
-  // 詞綴：把研究強度加成折進顯示數字（×(1+strengthBonus)），(+X%) 標保留作來源提示。
+  // 閰韌嚗??弦撘瑕漲???脤＊蝷箸摮??(1+strengthBonus)嚗?(+X%) 璅???靘??內??
   const aff = eq.affixes.map((a) => {
     const bonus = strengthBonus(state, a.stat);
     const buff = bonus > 0 ? ` <span class="aff-buff">(+${Math.round(bonus * 100)}%)</span>` : "";
@@ -848,7 +1025,24 @@ function describeEquip(eq: Equipment, state: GameState): string {
     const val = a.pct ? Math.round(eff * 100) + "%" : fmtNum(eff);
     return `+${val} ${a.label} <span class="aff-tier">T${a.tier}</span>${buff}`;
   });
-  return [base, ...aff].filter(Boolean).join("<br>");
+  return [summary, base, ...aff].filter(Boolean).join("<br>");
+}
+
+function renderTooltipRow(
+  row: ReturnType<typeof getEquipmentComparisonRows>[number],
+): string {
+  const delta = row.delta ?? 0;
+  const deltaClass = delta > 0 ? "up" : delta < 0 ? "down" : "same";
+  const deltaText = delta === 0 ? "±0" : `${delta > 0 ? "+" : ""}${formatViewValue(delta, row.pct)}`;
+  return `<div class="equip-tooltip__row">
+    <span>${row.label}</span>
+    <span class="equip-tooltip__value">${formatViewValue(row.value, row.pct)}</span>
+    <span class="equip-tooltip__delta ${deltaClass}">${deltaText}</span>
+  </div>`;
+}
+
+function formatViewValue(value: number, pct: boolean): string {
+  return pct ? `${Math.round(value * 100)}%` : fmtNum(value);
 }
 
 function statLabel(k: keyof StatBlock, v: number): string {
@@ -876,7 +1070,7 @@ function statLabel(k: keyof StatBlock, v: number): string {
   return `+${val} ${names[k]}`;
 }
 
-/** 平面數值格式化：四捨五入到整數（顯示一律不帶小數點）。 */
+/** 撟喲?詨潭撘?嚗??其??亙?湔嚗＊蝷箔?敺?撣嗅??賊?嚗?*/
 function fmtNum(n: number): string {
   return `${Math.round(n)}`;
 }

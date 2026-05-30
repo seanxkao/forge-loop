@@ -4,7 +4,7 @@ import { DISMANTLER } from "./content.ts";
 
 // ---- 基底研究：消耗該槽裝備道具，永久提升該槽基底數值（待平衡） ----
 const BASE_STAGE_BASE_COST = 5; // 首階需消耗的件數
-const BASE_STRENGTH_PER_STAGE = 0.1; // 每階 +10% 該槽基底
+const BASE_STRENGTH_PER_STAGE = 0.2; // 每階 +20% 該槽基底
 
 /** 某槽已完成 stages 階後，下一階所需消耗件數（每階 ×2）。 */
 export function baseStageCost(stages: number): number {
@@ -42,7 +42,7 @@ export function researchBase(state: GameState, slot: Slot): boolean {
 // 數值皆待平衡
 const STAGE_BASE_COST = 50; // 首階所需研究值
 const RESEARCH_PER_TIER = 10; // T3 起每階乘數（T3=10、T4=20…）
-const STRENGTH_PER_STAGE = 0.05; // 每完成一階 +5% 該類詞綴強度
+const STRENGTH_PER_STAGE = 0.1; // 每完成一階 +10% 該類詞綴強度
 export const DISMANTLE_CYCLE = 2; // 拆解一件所需秒數
 
 /** 某軌已完成 stages 階後，下一階所需研究值（每階 ×2）。 */

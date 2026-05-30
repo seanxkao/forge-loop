@@ -14,7 +14,7 @@ import { affixPool } from "./affixTable.ts";
 /** 英雄裸值（無裝備，極弱）。 */
 export const HERO_BASE: StatBlock = {
   hp: 50,
-  atk: 2,
+  atk: 7,
   localPhysPct: 0,
   def: 0,
   critChance: 0.05,

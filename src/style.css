@@ -99,14 +99,17 @@ body {
 }
 .drawer {
   display: none;
-  flex: 0 0 420px;
-  width: 420px;
+  flex: 0 1 clamp(360px, 34vw, 520px);
+  width: clamp(360px, 34vw, 520px);
+  max-width: min(520px, calc(100vw - 28px));
+  min-width: 320px;
   max-height: 82vh;
   overflow-y: auto;
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 10px;
   padding: 12px;
+  box-sizing: border-box;
 }
 .drawer.open {
   display: block;
@@ -128,6 +131,13 @@ body {
   margin-top: 14px;
 }
 
+@media (max-width: 1180px) {
+  .drawer {
+    flex-basis: clamp(320px, 42vw, 440px);
+    width: clamp(320px, 42vw, 440px);
+  }
+}
+
 @media (max-width: 860px) {
   .main {
     flex-direction: column;
@@ -135,6 +145,9 @@ body {
   .drawer {
     width: 100%;
     flex-basis: auto;
+    min-width: 0;
+    max-width: none;
+    max-height: none;
   }
 }
 
@@ -316,6 +329,14 @@ body {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+.bag-subtabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.bag-subtabs .tab-btn {
+  flex: 1;
 }
 .machine-card .mc-top {
   display: flex;
@@ -581,6 +602,7 @@ body {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
   background: var(--panel2);
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -593,6 +615,19 @@ body {
   display: flex;
   gap: 4px;
   margin-left: auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.craft-row .cb-name {
+  flex: 0 0 auto;
+}
+.craft-row .cb-base,
+.craft-row .cb-cost {
+  flex: 1 1 180px;
+  min-width: 0;
+}
+.craft-row .cb-queue {
+  flex: 0 0 auto;
 }
 .craft-row .craft-btn {
   background: var(--accent);
@@ -663,6 +698,43 @@ body {
   cursor: pointer;
   color: var(--text);
 }
+.crafter-card {
+  flex-basis: 100%;
+  align-items: stretch;
+  gap: 8px;
+  padding: 10px;
+}
+.crafter-top {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.crafter-filter {
+  margin-top: 2px;
+}
+
+@media (max-width: 1180px) {
+  .craft-row .cb-acts {
+    width: 100%;
+    margin-left: 0;
+  }
+}
+
+@media (max-width: 520px) {
+  .craft-row .cb-name,
+  .craft-row .cb-base,
+  .craft-row .cb-cost,
+  .craft-row .cb-queue,
+  .craft-row .cb-acts {
+    flex-basis: 100%;
+  }
+  .craft-row .cb-acts {
+    justify-content: flex-start;
+  }
+  .bag-subtabs {
+    flex-direction: column;
+  }
+}
 .machine-card:hover {
   border-color: var(--accent);
 }
@@ -699,6 +771,61 @@ body {
 .aff-buff {
   color: var(--good);
   font-weight: 600;
+}
+
+.equip-tooltip {
+  position: fixed;
+  z-index: 30;
+  width: min(320px, calc(100vw - 24px));
+  pointer-events: none;
+  background: color-mix(in srgb, var(--panel) 92%, #000);
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.35);
+  padding: 10px 12px;
+}
+.equip-tooltip__title {
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+.equip-tooltip__subtitle {
+  color: var(--muted);
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+.equip-tooltip__rows {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.equip-tooltip__row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 8px;
+  font-size: 12px;
+}
+.equip-tooltip__value {
+  color: var(--text);
+}
+.equip-tooltip__delta {
+  font-weight: 700;
+}
+.equip-tooltip__delta.up {
+  color: var(--good);
+}
+.equip-tooltip__delta.down {
+  color: var(--bad);
+}
+.equip-tooltip__delta.same {
+  color: var(--muted);
+}
+.equip-tooltip__detail {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 /* 過濾器 */

@@ -1,5 +1,5 @@
 import type { GameState, StatBlock, Equipment } from "./types.ts";
-import { HERO_BASE, HERO_BASE_INTERVAL } from "./content.ts";
+import { HERO_BASE, HERO_BASE_INTERVAL } from "./heroBase.ts";
 import { strengthBonus, baseBonus } from "./research.ts";
 
 const DMG_REDUCTION_CAP = 0.9;
