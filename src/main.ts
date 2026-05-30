@@ -124,8 +124,10 @@ const ui = new UI(root, canvas, {
     applyFilterSweep(state);
     ui.refresh(state);
   },
-  onCraftDismantler: () => {
-    craftDismantler(state);
+  onCraftDismantler: (qty) => {
+    for (let i = 0; i < qty; i += 1) {
+      if (!craftDismantler(state)) break;
+    }
     ui.refresh(state);
   },
   onSetDismActive: (delta) => {

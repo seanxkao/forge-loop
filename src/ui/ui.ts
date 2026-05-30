@@ -32,7 +32,7 @@ export interface UICallbacks {
   onFilterAdd(slot: Slot, stat: string, minTier: number): void;
   onFilterDel(slot: Slot, index: number): void;
   onFilterSweep(): void;
-  onCraftDismantler(): void;
+  onCraftDismantler(qty: number): void;
   onSetDismActive(delta: number): void;
   onResearchBase(slot: Slot): void;
   onReset(): void;
@@ -92,12 +92,17 @@ export class UI {
   }[] = [];
   private baseRows: {
     slot: Slot;
+    row: HTMLElement;
     bonus: HTMLElement;
     prog: HTMLElement;
+    fill: HTMLElement;
   }[] = [];
   private researchDisp: Record<string, number> = {}; // easing ?函?憿舐內??
   private lastStages: Record<string, number> = {}; // ?菜葫??
   private flashUntil: Record<string, number> = {}; // ???唳???嚗erformance.now嚗?
+  private baseResearchDisp: Record<Slot, number> = { weapon: 0, armor: 0, accessory: 0 };
+  private lastBaseStages: Record<Slot, number> = { weapon: 0, armor: 0, accessory: 0 };
+  private baseFlashUntil: Record<Slot, number> = { weapon: 0, armor: 0, accessory: 0 };
 
   // tick() ?函?敹怠?蝭暺?
   private machineCards: {
@@ -126,6 +131,7 @@ export class UI {
   private machineBuildQty: Record<string, number> = {};
   private crafterBuildQty: Record<Slot, number> = { weapon: 1, armor: 1, accessory: 1 };
   private craftOrderQty: Record<Slot, number> = { weapon: 1, armor: 1, accessory: 1 };
+  private dismantlerBuildQty = 1;
   private heroVals: Record<string, HTMLElement> = {};
   private matVals: Record<string, HTMLElement> = {};
   private matEls: Record<string, HTMLElement> = {};
@@ -158,8 +164,6 @@ export class UI {
           <div class="canvas-wrap"></div>
           <div class="hero" data-zone="hero"></div>
           <div class="equipped" data-zone="equipped"></div>
-          <h2>素材</h2>
-          <div class="inventory" data-zone="inventory"></div>
         </section>
         <aside class="drawer" data-drawer>
           <section class="panel-section" data-panel="map">
@@ -190,6 +194,12 @@ export class UI {
             <div class="research" data-zone="research"></div>
           </section>
         </aside>
+      </div>
+      <div class="inventory-bar">
+        <div class="inventory-bar__inner">
+          <span class="inventory-bar__title">素材</span>
+          <div class="inventory" data-zone="inventory"></div>
+        </div>
       </div>
     `;
     this.root.querySelector(".canvas-wrap")!.appendChild(this.canvas);
@@ -406,6 +416,11 @@ export class UI {
         this.craftOrderQty[arg as Slot] = Number(t.dataset.qty ?? "1");
         if (this.currentState) this.renderCrafterMachines(this.currentState);
         break;
+      case "selectDismQty":
+        this.dismantlerBuildQty = Number(t.dataset.qty ?? "1");
+        if (this.currentState) this.renderResearch();
+        if (this.currentState) this.tick(this.currentState);
+        break;
       case "openFilter":
         this.filterModalSlot = arg as Slot;
         if (this.currentState) this.renderFilterModal(this.currentState);
@@ -439,7 +454,7 @@ export class UI {
         this.cb.onFilterSweep();
         break;
       case "craftDismantler":
-        this.cb.onCraftDismantler();
+        this.cb.onCraftDismantler(Number(t.dataset.qty ?? "1"));
         break;
       case "dismActive":
         this.cb.onSetDismActive(Number(arg));
@@ -566,8 +581,19 @@ export class UI {
       const stages = state.baseResearch[b.slot] ?? 0;
       const need = baseStageCost(stages);
       const avail = baseItemsAvailable(state, b.slot);
+      if (this.lastBaseStages[b.slot] === undefined) this.lastBaseStages[b.slot] = stages;
+      if (stages !== this.lastBaseStages[b.slot]) {
+        this.baseResearchDisp[b.slot] = baseStageCost(this.lastBaseStages[b.slot]);
+        this.lastBaseStages[b.slot] = stages;
+        this.baseFlashUntil[b.slot] = now + 700;
+      }
+      const prev = this.baseResearchDisp[b.slot] ?? avail;
+      const disp = prev + (avail - prev) * 0.18;
+      this.baseResearchDisp[b.slot] = disp;
       b.bonus.textContent = `+${Math.round(baseBonus(state, b.slot) * 100)}%`;
-      b.prog.textContent = `${avail}/${need} 件進度`;
+      b.prog.textContent = `${Math.floor(disp)}/${need}`;
+      b.fill.style.width = `${Math.round(Math.min(1, disp / need) * 100)}%`;
+      b.row.classList.toggle("flash", (this.baseFlashUntil[b.slot] ?? 0) > now);
     }
     } // end research ??
 
@@ -663,7 +689,7 @@ export class UI {
           <span class="cell-bar mc-bar"><i data-mbar></i></span>
           <div class="mc-btns">
             <button class="mc-main-btn" data-act="craftMachine" data-arg="${m.id}" data-qty="${qty}">增加機台 ${qty}（${cost(scaleCost(m.buildCost, qty))}）</button>
-            ${renderQtyButtons("selectMachineQty", m.id, qty)}
+            ${renderQtyButtons("selectMachineQty", m.id, qty, "mc-mini-btn", [1, 10, 100, 1000, 10000])}
           </div>
           <div class="mc-btns mc-btns--secondary">
             <button class="mc-step" data-act="machineActive" data-arg="${m.id}" data-delta="-1">－</button>
@@ -711,7 +737,7 @@ export class UI {
           <span class="cell-bar mc-bar"><i data-cbar></i></span>
           <div class="mc-btns">
             <button class="mc-main-btn" data-act="craftCrafter" data-arg="${slot}" data-qty="${buildQty}">增加機台 ${buildQty}（${cost(scaleCost(cr.buildCost, buildQty))}）</button>
-            ${renderQtyButtons("selectCrafterBuildQty", slot, buildQty)}
+            ${renderQtyButtons("selectCrafterBuildQty", slot, buildQty, "mc-mini-btn", [1, 10, 100, 1000, 10000])}
           </div>
           <div class="mc-btns mc-btns--secondary">
             <button class="mc-step" data-act="crafterActive" data-arg="${slot}" data-delta="-1">－</button>
@@ -757,12 +783,11 @@ export class UI {
     const c = state.crafters[slot];
     const qty = this.craftOrderQty[slot] ?? 1;
     return `<div class="craft-row" data-oid="${slot}">
-      <span class="cb-name">${r.icon} ${r.name}</span>
       <span class="cb-base cb-base--tip" title="${describeStats(r.base)}">基底</span>
       <span class="cb-queue">佇列 <b data-oqueue>${c?.queue ?? 0}</b></span>
       <span class="cb-acts">
         <button class="craft-btn craft-btn--main" data-act="craft" data-arg="${slot}" data-qty="${qty}">製造 ${qty}（${cost(scaleCost(r.cost, qty))}）</button>
-        ${renderQtyButtons("selectCraftQty", slot, qty, "craft-btn x10")}
+        ${renderQtyButtons("selectCraftQty", slot, qty, "craft-btn x10", [1, 10, 100, 1000, 10000])}
         <button class="craft-btn clear" data-act="clearQueue" data-arg="${slot}">清空</button>
       </span>
     </div>`;
@@ -856,6 +881,7 @@ export class UI {
 
   private renderResearch(): void {
     const tracks = allAffixDefs();
+    const qty = this.dismantlerBuildQty;
     this.els.research.innerHTML = `
       <div class="dism">
         <div class="dism-top">
@@ -866,9 +892,23 @@ export class UI {
         <div class="mc-btns">
           <button class="mc-step" data-act="dismActive" data-arg="-1">－</button>
           <button class="mc-step" data-act="dismActive" data-arg="1">＋</button>
-          <button class="mc-craft" data-act="craftDismantler">製造 ${cost(DISMANTLER.buildCost)}</button>
+          <button class="mc-main-btn" data-act="craftDismantler" data-qty="${qty}">增加機台 ${qty}（${cost(scaleCost(DISMANTLER.buildCost, qty))}）</button>
+          ${renderQtyButtons("selectDismQty", "dism", qty, "mc-mini-btn", [1, 10, 100])}
         </div>
       </div>
+      <h3 class="research-sub">基底研究（拆解該槽裝備後自動累積，永久提升基底）</h3>
+      <div class="branks">
+        ${(["weapon", "armor", "accessory"] as Slot[])
+          .map(
+            (slot) => `<div class="brank" data-bslot="${slot}">
+            <span class="rt-name">${SLOT_NAME[slot]}基底 <b class="rt-bonus" data-bbonus></b></span>
+            <span class="rt-prog" data-bprog></span>
+            <span class="cell-bar rt-bar"><i data-bfill></i></span>
+          </div>`,
+          )
+          .join("")}
+      </div>
+      <h3 class="research-sub">詞綴研究（T3 以上詞綴提供研究值）</h3>
       <div class="rtracks">
         ${tracks
           .map(
@@ -879,20 +919,9 @@ export class UI {
           </div>`,
           )
           .join("")}
-      </div>
-      <h3 class="research-sub">基底研究（拆解該槽裝備後自動累積，永久提升基底）</h3>
-      <div class="branks">
-        ${(["weapon", "armor", "accessory"] as Slot[])
-          .map(
-            (slot) => `<div class="brank" data-bslot="${slot}">
-            <span class="rt-name">${SLOT_NAME[slot]}基底 <b class="rt-bonus" data-bbonus></b></span>
-            <span class="rt-prog" data-bprog></span>
-          </div>`,
-          )
-          .join("")}
       </div>`;
     this.dismCountEl = this.els.research.querySelector("[data-dcount]")!;
-    this.dismCraftBtn = this.els.research.querySelector(".mc-craft")!;
+    this.dismCraftBtn = this.els.research.querySelector("[data-act=\"craftDismantler\"]")!;
     this.dismBar = this.els.research.querySelector("[data-dism-bar]")!;
     this.dismStatus = this.els.research.querySelector("[data-dism-status]")!;
     this.researchRows = [];
@@ -909,8 +938,10 @@ export class UI {
     this.els.research.querySelectorAll<HTMLElement>("[data-bslot]").forEach((row) => {
       this.baseRows.push({
         slot: row.dataset.bslot as Slot,
+        row,
         bonus: row.querySelector<HTMLElement>("[data-bbonus]")!,
         prog: row.querySelector<HTMLElement>("[data-bprog]")!,
+        fill: row.querySelector<HTMLElement>("[data-bfill]")!,
       });
     });
   }
@@ -978,8 +1009,9 @@ function renderQtyButtons(
   arg: string,
   selected: number,
   className = "mc-mini-btn",
+  options = [1, 10, 100],
 ): string {
-  return [1, 10, 100]
+  return options
     .map((qty) => {
       const sel = qty === selected ? " sel" : "";
       return `<button class="${className}${sel}" data-act="${act}" data-arg="${arg}" data-qty="${qty}">${qty}</button>`;
@@ -997,7 +1029,7 @@ function describeEquip(eq: Equipment, state: GameState): string {
   const summary = eq.slot === "weapon"
     ? getEquipmentSummaryRows(state, eq)
         .slice(0, 1)
-        .map((row) => `${row.label} ${formatViewValue(row.value, row.pct)}`)
+        .map((row) => `<span class="eq-summary-line">${row.label} ${formatViewValue(row.value, row.pct)}</span>`)
         .join("<br>")
     : "";
   // ?箏?嚗??箏??弦??嚗?1+baseBonus)嚗??????潸府銵??(+X%) 璅?

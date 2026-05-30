@@ -5,21 +5,32 @@ import { deriveStats } from "../game/hero.ts";
 interface Popup {
   x: number;
   y: number;
+  baseX: number;
+  baseY: number;
+  driftX: number;
+  rise: number;
   text: string;
   color: string;
   life: number; // 剩餘秒數
+  totalLife: number;
   big: boolean;
+}
+
+interface PendingDrop {
+  text: string;
+  delay: number;
 }
 
 const W = 480;
 const H = 240;
-const GROUND_Y = 180;
+const GROUND_Y = 166;
 const HERO_X = 110;
 const ENEMY_X = 360;
 
 export class BattleRenderer {
   private ctx: CanvasRenderingContext2D;
   private popups: Popup[] = [];
+  private pendingDrops: PendingDrop[] = [];
   private heroLunge = 0;
   private enemyLunge = 0;
   private heroFlash = 0;
@@ -41,9 +52,14 @@ export class BattleRenderer {
     this.popups.push({
       x: ENEMY_X,
       y: GROUND_Y - 60,
+      baseX: ENEMY_X,
+      baseY: GROUND_Y - 60,
+      driftX: 0,
+      rise: 28,
       text: crit ? `${dmg}!` : `${dmg}`,
       color: crit ? "#ffd23f" : "#ffffff",
       life: 0.9,
+      totalLife: 0.9,
       big: crit,
     });
   }
@@ -54,21 +70,22 @@ export class BattleRenderer {
     this.popups.push({
       x: HERO_X,
       y: GROUND_Y - 60,
+      baseX: HERO_X,
+      baseY: GROUND_Y - 60,
+      driftX: 0,
+      rise: 28,
       text: `${dmg}`,
       color: "#ff5c5c",
       life: 0.9,
+      totalLife: 0.9,
       big: false,
     });
   }
 
   drop(text: string): void {
-    this.popups.push({
-      x: ENEMY_X,
-      y: GROUND_Y - 90,
+    this.pendingDrops.push({
       text,
-      color: "#7CFC9B",
-      life: 1.2,
-      big: false,
+      delay: this.pendingDrops.length * 0.1,
     });
   }
 
@@ -83,6 +100,24 @@ export class BattleRenderer {
     this.enemyLunge = Math.max(0, this.enemyLunge - dt * 5);
     this.heroFlash = Math.max(0, this.heroFlash - dt * 6);
     this.enemyFlash = Math.max(0, this.enemyFlash - dt * 6);
+    for (const drop of this.pendingDrops) drop.delay -= dt;
+    while (this.pendingDrops[0] && this.pendingDrops[0].delay <= 0) {
+      const next = this.pendingDrops.shift()!;
+      const driftX = (Math.random() - 0.5) * 28;
+      this.popups.push({
+        x: ENEMY_X,
+        y: GROUND_Y - 90,
+        baseX: ENEMY_X,
+        baseY: GROUND_Y - 90,
+        driftX,
+        rise: 42,
+        text: next.text,
+        color: "#7CFC9B",
+        life: 1.2,
+        totalLife: 1.2,
+        big: false,
+      });
+    }
 
     const ctx = this.ctx;
     // 背景
@@ -138,8 +173,11 @@ export class BattleRenderer {
     // 傷害數字
     for (const p of this.popups) {
       p.life -= dt;
-      p.y -= dt * 30;
-      ctx.globalAlpha = Math.max(0, Math.min(1, p.life / 0.9));
+      const progress = 1 - Math.max(0, p.life) / p.totalLife;
+      const eased = 1 - (1 - progress) ** 3;
+      p.x = p.baseX + p.driftX * eased;
+      p.y = p.baseY - p.rise * eased;
+      ctx.globalAlpha = Math.max(0, Math.min(1, p.life / p.totalLife));
       ctx.fillStyle = p.color;
       ctx.font = `${p.big ? 18 : 13}px monospace`;
       ctx.fillText(p.text, p.x, p.y);
