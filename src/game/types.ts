@@ -1,6 +1,7 @@
 export type Slot = "weapon" | "armor" | "accessory";
 export type ItemSlot = Slot | "core";
 export type BaseResearchSlot = Slot | "core";
+export type EquipSlotId = "weapon" | "armor" | "accessory1" | "accessory2";
 export type ItemRarity = "normal" | "magic" | "rare";
 export type ItemKind = "equipment" | "core";
 export type AffixTag = "physical" | "crit" | "speed" | "life" | "defense" | "craft";
@@ -17,6 +18,7 @@ export interface StatBlock {
   hpRegen: number;
   dmgReductionPct: number;
   blockChance: number;
+  defPenPct: number;
 }
 
 export type PartialStats = Partial<StatBlock>;
@@ -56,6 +58,7 @@ export interface EnemyDef {
   maxHp: number;
   atk: number;
   def: number;
+  defPenPct: number;
   atkInterval: number;
   drops: DropDef[];
 }
@@ -195,6 +198,8 @@ export interface CombatState {
   heroHp: number;
   heroAtkTimer: number;
   enemyAtkTimer: number;
+  clearPause: number;
+  pendingStageId: string | null;
 }
 
 export type ReincarnationBuff = "research" | "materials" | "power";
@@ -209,6 +214,7 @@ export interface ReincarnationState {
 export interface ProgressState {
   unlockedStageCount: number;
   coreUnlocked: boolean;
+  autoAdvanceNext: boolean;
 }
 
 export interface GameState {
@@ -218,7 +224,11 @@ export interface GameState {
   equipmentInv: Item[];
   warehouseInv: Item[];
   filters: Record<ItemSlot, FilterEntry[]>;
-  equipped: Record<Slot, Equipment | null>;
+  equipped: {
+    weapon: Equipment | null;
+    armor: Equipment | null;
+    accessory: [Equipment | null, Equipment | null];
+  };
   combat: CombatState;
   research: { points: Record<string, number>; stages: Record<string, number> };
   baseResearch: Record<BaseResearchSlot, number>;

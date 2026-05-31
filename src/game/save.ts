@@ -3,10 +3,19 @@ import { deriveLegacyItemRarity } from "./rarity.ts";
 import { SAVE_VERSION, createInitialState } from "./state.ts";
 import { normalizeUnlockProgress } from "./unlocks.ts";
 import { countVariableAffixes } from "./itemAffixes.ts";
+import { affixLabel } from "./affixMeta.ts";
 
 const KEY = "forge-loop-save";
 const LEGACY_BLOCK_STAT = "critDmgTakenReductionPct";
 const BLOCK_STAT = "blockChance";
+
+function equippedItems(state: GameState): Item[] {
+  return [
+    state.equipped.weapon,
+    state.equipped.armor,
+    ...state.equipped.accessory,
+  ].flatMap((item) => item ? [item] : []);
+}
 
 export function save(state: GameState): void {
   try {
@@ -27,9 +36,7 @@ function normalizeLegacyBlockStat(state: GameState): void {
 
   remapAffixes(state.equipmentInv);
   remapAffixes(state.warehouseInv);
-  remapAffixes(
-    Object.values(state.equipped).filter((eq): eq is NonNullable<typeof eq> => eq !== null),
-  );
+  remapAffixes(equippedItems(state));
 
   for (const slot of Object.keys(state.filters) as Array<keyof typeof state.filters>) {
     for (const entry of state.filters[slot]) {
@@ -57,7 +64,7 @@ function normalizeLegacyItemKinds(state: GameState): void {
 
   state.equipmentInv.forEach(normalizeItem);
   state.warehouseInv.forEach(normalizeItem);
-  Object.values(state.equipped).forEach(normalizeItem);
+  equippedItems(state).forEach(normalizeItem);
   Object.values(state.machines).forEach((machine) => machine.cores.forEach(normalizeItem));
   Object.values(state.crafters).forEach((crafter) => crafter.cores.forEach(normalizeItem));
   state.dismantler.cores.forEach(normalizeItem);
@@ -72,11 +79,22 @@ function normalizeLegacyRarity(state: GameState): void {
 
   state.equipmentInv.forEach(normalizeItem);
   state.warehouseInv.forEach(normalizeItem);
-  Object.values(state.equipped).forEach(normalizeItem);
+  equippedItems(state).forEach(normalizeItem);
   Object.values(state.machines).forEach((machine) => machine.cores.forEach(normalizeItem));
   Object.values(state.crafters).forEach((crafter) => crafter.cores.forEach(normalizeItem));
   state.dismantler.cores.forEach(normalizeItem);
   state.coreCrafter.cores.forEach(normalizeItem);
+}
+
+function normalizeLegacyAccessorySlots(state: GameState): void {
+  const equipped = state.equipped as GameState["equipped"] | {
+    weapon: Item | null;
+    armor: Item | null;
+    accessory: Item | null;
+  };
+  if (!Array.isArray(equipped.accessory)) {
+    equipped.accessory = [equipped.accessory ?? null, null] as GameState["equipped"]["accessory"];
+  }
 }
 
 function normalizeLegacyFilters(state: GameState): void {
@@ -87,6 +105,23 @@ function normalizeLegacyFilters(state: GameState): void {
       return { kind: "affixTier", stat: legacy.stat as never, minTier: legacy.minTier };
     });
   }
+}
+
+function normalizeLegacyAffixLabels(state: GameState): void {
+  const normalizeItem = (item: Item | null | undefined) => {
+    if (!item) return;
+    for (const affix of item.affixes) {
+      affix.label = affixLabel(affix.stat);
+    }
+  };
+
+  state.equipmentInv.forEach(normalizeItem);
+  state.warehouseInv.forEach(normalizeItem);
+  equippedItems(state).forEach(normalizeItem);
+  Object.values(state.machines).forEach((machine) => machine.cores.forEach(normalizeItem));
+  Object.values(state.crafters).forEach((crafter) => crafter.cores.forEach(normalizeItem));
+  state.dismantler.cores.forEach(normalizeItem);
+  state.coreCrafter.cores.forEach(normalizeItem);
 }
 
 /** 以「現行 schema（預設值）」為形狀，把舊存檔深層合併進來。
@@ -118,9 +153,11 @@ export function load(): GameState {
     if (!raw) return createInitialState();
     // 不因改版直接清檔：以現行 schema 深層合併遷移舊檔
     const migrated = migrate(JSON.parse(raw), createInitialState()) as GameState;
+    normalizeLegacyAccessorySlots(migrated);
     normalizeLegacyItemKinds(migrated);
     normalizeLegacyRarity(migrated);
     normalizeLegacyFilters(migrated);
+    normalizeLegacyAffixLabels(migrated);
     normalizeLegacyBlockStat(migrated);
     normalizeUnlockProgress(migrated);
     migrated.version = SAVE_VERSION;

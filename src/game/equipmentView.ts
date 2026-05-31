@@ -1,4 +1,4 @@
-import type { AffixStat, Equipment, GameState, Item, Slot, StatBlock } from "./types.ts";
+import type { AffixStat, EquipSlotId, Equipment, GameState, Item, Slot, StatBlock } from "./types.ts";
 import { baseBonus } from "./progression.ts";
 import { affixLabel, isPctAffix } from "./affixMeta.ts";
 import { affixBonusMultiplier } from "./itemAffixes.ts";
@@ -128,7 +128,14 @@ function makeRow(key: EquipmentViewKey, value: number): EquipmentViewRow {
 }
 
 export function findEquippedInSlot(state: GameState, slot: Slot): Equipment | null {
+  if (slot === "accessory") return state.equipped.accessory[0];
   return state.equipped[slot];
+}
+
+export function findEquippedInEquipSlot(state: GameState, slot: EquipSlotId): Equipment | null {
+  if (slot === "weapon") return state.equipped.weapon;
+  if (slot === "armor") return state.equipped.armor;
+  return state.equipped.accessory[slot === "accessory1" ? 0 : 1];
 }
 
 export function isHeroStatKey(stat: AffixStat): stat is keyof StatBlock {

@@ -9,9 +9,9 @@ const DMG_REDUCTION_CAP = 0.9;
 export function deriveStats(state: GameState): StatBlock {
   const s: StatBlock = { ...HERO_BASE };
 
-  for (const slot of ["armor", "accessory"] as const) {
-    const eq = state.equipped[slot];
-    if (eq) applyGlobal(state, s, eq);
+  if (state.equipped.armor) applyGlobal(state, s, state.equipped.armor);
+  for (const accessory of state.equipped.accessory) {
+    if (accessory) applyGlobal(state, s, accessory);
   }
 
   const w = state.equipped.weapon;

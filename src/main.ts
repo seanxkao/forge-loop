@@ -65,6 +65,10 @@ const ui = new UI(root, canvas, {
     startStage(state, id);
     ui.refresh(state);
   },
+  onToggleAutoAdvanceNext: () => {
+    state.progress.autoAdvanceNext = !state.progress.autoAdvanceNext;
+    ui.refresh(state);
+  },
   onCraftMachine: (id, qty) => {
     for (let i = 0; i < qty; i += 1) {
       if (!craftMachine(state, id)) break;

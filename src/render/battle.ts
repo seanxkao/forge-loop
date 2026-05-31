@@ -157,7 +157,8 @@ export class BattleRenderer {
 
     // 敵人
     const enemyDx = -this.enemyLunge * 14;
-    this.drawEnemy(ENEMY_X + enemyDx, GROUND_Y, enemy.icon, this.enemyFlash > 0.5);
+    const isBoss = enemy.name.startsWith("💀");
+    this.drawEnemy(ENEMY_X + enemyDx, GROUND_Y, enemy.icon, this.enemyFlash > 0.5, isBoss ? 2 : 1);
     this.drawBar(
       ENEMY_X - 26,
       GROUND_Y - 86,
@@ -167,8 +168,7 @@ export class BattleRenderer {
       "#e2574c",
     );
     ctx.fillStyle = "#cfc8e8";
-    ctx.font = "10px monospace";
-    ctx.fillText(enemy.name, ENEMY_X, GROUND_Y + 18);
+    this.drawEnemyName(enemy.name, ENEMY_X, GROUND_Y + 18, 132);
 
     // 傷害數字
     for (const p of this.popups) {
@@ -207,25 +207,38 @@ export class BattleRenderer {
   }
 
   /** 敵人用放大圖示呈現，腳下加陰影。 */
-  private drawEnemy(cx: number, groundY: number, icon: string, flash: boolean): void {
+  private drawEnemy(cx: number, groundY: number, icon: string, flash: boolean, scale = 1): void {
     const ctx = this.ctx;
     ctx.fillStyle = "rgba(0,0,0,0.35)";
     ctx.beginPath();
-    ctx.ellipse(cx, groundY + 2, 24, 6, 0, 0, Math.PI * 2);
+    ctx.ellipse(cx, groundY + 2, 24 * scale, 6 * scale, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.textAlign = "center";
     ctx.textBaseline = "alphabetic";
-    ctx.font = "48px serif";
+    ctx.font = `${48 * scale}px serif`;
     if (flash) {
       ctx.save();
       ctx.globalCompositeOperation = "source-over";
-      ctx.fillText(icon, cx, groundY - 6);
+      ctx.fillText(icon, cx, groundY - 6 + (scale - 1) * 4);
       ctx.fillStyle = "rgba(255,255,255,0.6)";
-      ctx.fillRect(cx - 26, groundY - 52, 52, 52);
+      ctx.fillRect(cx - 26 * scale, groundY - 52 * scale, 52 * scale, 52 * scale);
       ctx.restore();
     } else {
-      ctx.fillText(icon, cx, groundY - 6);
+      ctx.fillText(icon, cx, groundY - 6 + (scale - 1) * 4);
     }
+  }
+
+  private drawEnemyName(name: string, x: number, y: number, maxWidth: number): void {
+    const ctx = this.ctx;
+    let fontSize = 10;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "alphabetic";
+    while (fontSize > 8) {
+      ctx.font = `${fontSize}px monospace`;
+      if (ctx.measureText(name).width <= maxWidth) break;
+      fontSize -= 1;
+    }
+    ctx.fillText(name, x, y, maxWidth);
   }
 
   private drawBar(

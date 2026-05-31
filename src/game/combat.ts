@@ -5,6 +5,11 @@ import { add } from "./inventory.ts";
 import { materialDropMultiplier } from "./reincarnation.ts";
 import { coerceUnlockedStageId, unlockAfterStageClear } from "./unlocks.ts";
 
+function effectiveDefense(defense: number, penPct: number): number {
+  const pen = Math.max(0, Math.min(1, penPct));
+  return defense * (1 - pen);
+}
+
 export interface CombatFx {
   onHeroAttack?(dmg: number, crit: boolean): void;
   onEnemyAttack?(dmg: number, blocked?: boolean): void;
@@ -31,6 +36,8 @@ export function startStage(state: GameState, stageId: string): void {
   c.enemyIndex = 0;
   c.heroAtkTimer = 0;
   c.enemyAtkTimer = 0;
+  c.clearPause = 0;
+  c.pendingStageId = null;
   c.heroHp = deriveStats(state).hp;
   spawnCurrent(state);
 }
@@ -43,23 +50,39 @@ function spawnCurrent(state: GameState): void {
 function advance(state: GameState, fx: CombatFx): void {
   const c = state.combat;
   const stage = getStage(c.stageId);
+  const stageId = c.stageId;
   const isFinalEnemy =
     c.waveIndex === stage.waves.length - 1 &&
     c.enemyIndex === stage.waves[c.waveIndex].length - 1 &&
-    c.stageId === STAGES[STAGES.length - 1].id;
+    stageId === STAGES[STAGES.length - 1].id;
   c.enemyIndex += 1;
   if (c.enemyIndex >= stage.waves[c.waveIndex].length) {
     c.enemyIndex = 0;
     c.waveIndex += 1;
     if (c.waveIndex >= stage.waves.length) {
-      unlockAfterStageClear(state, c.stageId);
+      unlockAfterStageClear(state, stageId);
       c.waveIndex = 0;
       c.heroHp = deriveStats(state).hp;
+      c.heroAtkTimer = 0;
+      c.enemyAtkTimer = 0;
+      c.clearPause = 1;
+      c.pendingStageId = null;
+      c.enemyHp = 0;
       if (isFinalEnemy && !state.reincarnation.gameCleared) {
         state.reincarnation.victoryPending = true;
         state.reincarnation.gameCleared = true;
       }
+      const currentIndex = STAGES.findIndex((entry) => entry.id === stageId);
+      const nextStage = STAGES[currentIndex + 1];
+      if (
+        state.progress.autoAdvanceNext &&
+        nextStage &&
+        currentIndex + 1 < state.progress.unlockedStageCount
+      ) {
+        c.pendingStageId = nextStage.id;
+      }
       fx.onStageClear?.();
+      return;
     }
   }
   spawnCurrent(state);
@@ -90,6 +113,13 @@ function heroDeath(state: GameState, fx: CombatFx): void {
 
 export function tickCombat(state: GameState, dt: number, fx: CombatFx): void {
   const c = state.combat;
+  if (c.clearPause > 0) {
+    c.clearPause = Math.max(0, c.clearPause - dt);
+    if (c.clearPause > 0) return;
+    startStage(state, c.pendingStageId ?? c.stageId);
+    fx.onStageClear?.();
+    return;
+  }
   const stats = deriveStats(state);
 
   if (c.enemyHp <= 0) {
@@ -111,7 +141,7 @@ export function tickCombat(state: GameState, dt: number, fx: CombatFx): void {
     const crit = Math.random() < stats.critChance;
     let atk = stats.atk;
     if (crit) atk *= stats.critMult;
-    const dmg = Math.max(1, Math.round(atk - enemy.def));
+    const dmg = Math.max(1, Math.round(atk - effectiveDefense(enemy.def, stats.defPenPct)));
     c.enemyHp -= dmg;
     fx.onHeroAttack?.(dmg, crit);
     if (c.enemyHp <= 0) {
@@ -128,7 +158,7 @@ export function tickCombat(state: GameState, dt: number, fx: CombatFx): void {
     const blocked = stats.blockChance > 0 && Math.random() < stats.blockChance;
     const reduction = Math.min(0.95, stats.dmgReductionPct + (blocked ? 0.25 : 0));
     let base = enemy.atk * (1 - reduction);
-    base -= stats.def;
+    base -= effectiveDefense(stats.def, enemy.defPenPct);
     const edmg = Math.max(1, Math.round(base));
     c.heroHp -= edmg;
     fx.onEnemyAttack?.(edmg, blocked);

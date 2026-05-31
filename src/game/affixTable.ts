@@ -1,25 +1,21 @@
-// 詞綴表載入器：解析 affixTable.csv（分階長表）成各槽的詞綴定義。
-// 詞綴資料的單一事實來源是 affixTable.csv（可用試算表手調）；本檔只負責解析。
 import type { AffixDef, Slot } from "./types.ts";
 import csvRaw from "./affixTable.csv?raw";
 import { withDerivedAffixMeta } from "./affixMeta.ts";
 
-// 欄位順序須與 affixTable.csv 的表頭一致。
 const COLS = ["slot", "stat", "label", "pct", "tier", "weight", "min", "max"] as const;
 
 function parse(raw: string): Map<string, AffixDef[]> {
-  // slot -> stat -> AffixDef（保留出現順序）
   const bySlot = new Map<string, Map<string, AffixDef>>();
   const lines = raw
     .split(/\r?\n/)
-    .map((l) => l.trim())
-    .filter((l) => l && !l.startsWith("#"));
-  if (lines.length && lines[0].startsWith("slot,")) lines.shift(); // 丟表頭
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith("#"));
+  if (lines.length && lines[0].startsWith("slot,")) lines.shift();
 
   for (const line of lines) {
     const cells = line.split(",");
     const row: Record<string, string> = {};
-    COLS.forEach((c, i) => (row[c] = (cells[i] ?? "").trim()));
+    COLS.forEach((col, index) => (row[col] = (cells[index] ?? "").trim()));
 
     let slotMap = bySlot.get(row.slot);
     if (!slotMap) {
@@ -51,7 +47,6 @@ function parse(raw: string): Map<string, AffixDef[]> {
 
 const POOLS = parse(csvRaw);
 
-/** 取得某槽的詞綴定義清單（各含分階）。 */
 export function affixPool(slot: Slot): AffixDef[] {
   return POOLS.get(slot) ?? [];
 }

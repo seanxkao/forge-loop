@@ -20,7 +20,7 @@ function makeState(): GameState {
     equipmentInv: [],
     warehouseInv: [],
     filters: { weapon: [], armor: [], accessory: [], core: [] },
-    equipped: { weapon: null, armor: null, accessory: null },
+    equipped: { weapon: null, armor: null, accessory: [null, null] },
     combat: {
       stageId: "s1",
       waveIndex: 0,
@@ -29,10 +29,12 @@ function makeState(): GameState {
       heroHp: 0,
       heroAtkTimer: 0,
       enemyAtkTimer: 0,
+      clearPause: 0,
+      pendingStageId: null,
     },
     research: { points: {}, stages: {} },
-    baseResearch: { weapon: 0, armor: 0, accessory: 0 },
-    baseResearchPoints: { weapon: 0, armor: 0, accessory: 0 },
+    baseResearch: { weapon: 0, armor: 0, accessory: 0, core: 0 },
+    baseResearchPoints: { weapon: 0, armor: 0, accessory: 0, core: 0 },
     dismantler: { count: 1, active: 1, progress: 0, cores: [null, null] },
     crafters: {
       weapon: { count: 1, active: 1, progress: 0, productivity: 0, queue: 0, idle: false, cores: [null, null] },
@@ -49,6 +51,7 @@ function makeState(): GameState {
     progress: {
       unlockedStageCount: 1,
       coreUnlocked: false,
+      autoAdvanceNext: false,
     },
     nextEquipId: 1,
   };

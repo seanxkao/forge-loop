@@ -1,19 +1,54 @@
-import type { Equipment, GameState, Item } from "./types.ts";
+import type { EquipSlotId, Equipment, GameState, Item } from "./types.ts";
 import { RECIPES, CORE_RECIPE } from "./content.ts";
 import { add } from "./inventory.ts";
 import { unsocketCore } from "./machineCores.ts";
+
+export function equippedItems(state: GameState): Equipment[] {
+  return [
+    state.equipped.weapon,
+    state.equipped.armor,
+    ...state.equipped.accessory,
+  ].filter((item): item is Equipment => item !== null);
+}
+
+export function equippedItemInSlot(state: GameState, slot: EquipSlotId): Equipment | null {
+  if (slot === "weapon") return state.equipped.weapon;
+  if (slot === "armor") return state.equipped.armor;
+  return state.equipped.accessory[slot === "accessory1" ? 0 : 1];
+}
 
 export function equip(state: GameState, uid: number): void {
   const idx = state.equipmentInv.findIndex((item) => item.uid === uid && item.kind === "equipment");
   if (idx < 0) return;
   const eq = state.equipmentInv[idx] as Equipment;
   state.equipmentInv.splice(idx, 1);
+
+  if (eq.slot === "accessory") {
+    const emptyIndex = state.equipped.accessory.findIndex((item) => item === null);
+    if (emptyIndex >= 0) {
+      state.equipped.accessory[emptyIndex] = eq;
+      return;
+    }
+    const prev = state.equipped.accessory[0];
+    if (prev) state.equipmentInv.push(prev);
+    state.equipped.accessory[0] = eq;
+    return;
+  }
+
   const prev = state.equipped[eq.slot];
   if (prev) state.equipmentInv.push(prev);
   state.equipped[eq.slot] = eq;
 }
 
-export function unequip(state: GameState, slot: Equipment["slot"]): void {
+export function unequip(state: GameState, slot: EquipSlotId): void {
+  if (slot === "accessory1" || slot === "accessory2") {
+    const index = slot === "accessory1" ? 0 : 1;
+    const eq = state.equipped.accessory[index];
+    if (!eq) return;
+    state.equipped.accessory[index] = null;
+    state.equipmentInv.push(eq);
+    return;
+  }
   const eq = state.equipped[slot];
   if (!eq) return;
   state.equipped[slot] = null;

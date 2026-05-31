@@ -20,6 +20,8 @@ import { stageIndexById, unlockedStages } from "../game/unlocks.ts";
 import { clampTooltipPosition } from "./tooltipPosition.ts";
 import { affixBonusMultiplier, countVariableAffixes } from "../game/itemAffixes.ts";
 import type { BaseResearchSlot, FilterEntry, ItemRarity } from "../game/types.ts";
+import type { EquipSlotId } from "../game/types.ts";
+import { findEquippedInEquipSlot } from "../game/equipmentView.ts";
 import {
   stageCost,
   DISMANTLE_CYCLE,
@@ -31,6 +33,7 @@ import {
 
 export interface UICallbacks {
   onSelectStage(id: string): void;
+  onToggleAutoAdvanceNext(): void;
   onCraftMachine(id: string, qty: number): void;
   onToggleMachineActive(id: string): void;
   onCraft(recipeId: string, qty: number): void;
@@ -38,7 +41,7 @@ export interface UICallbacks {
   onToggleCrafterActive(slot: Slot): void;
   onClearCraftQueue(slot: ItemSlot): void;
   onEquip(uid: number): void;
-  onUnequip(slot: Slot): void;
+  onUnequip(slot: EquipSlotId): void;
   onDiscard(uid: number): void;
   onDiscardAll(): void;
   onDiscardAllWarehouse(): void;
@@ -81,12 +84,15 @@ export class UI {
   private activeTab: string | null = null;
   private activeBagTab: "main" | "warehouse" = "main";
   private activeBagFilter: ItemSlot | "all" = "all";
+  private activeBattleInfoTab: "stats" | "equipped" = "equipped";
   private currentState: GameState | null = null;
   private drawerEl!: HTMLElement;
   private tooltipEl!: HTMLElement;
   private filterModalEl!: HTMLElement;
   private victoryModalEl!: HTMLElement;
   private coreModalEl!: HTMLElement;
+  private stageModalEl!: HTMLElement;
+  private stageModalOpen = false;
   private tooltipKey: string | null = null;
   private filterModalSlot: ItemSlot | null = null;
   private coreTarget: { kind: MachineTargetKind; id: string; slotIndex: number } | null = null;
@@ -94,8 +100,9 @@ export class UI {
   private tabBtnEls: Record<string, HTMLElement> = {};
 
   private els!: {
-    stages: HTMLElement;
     battleActions: HTMLElement;
+    battleOptions: HTMLElement;
+    battleInfoTabs: HTMLElement;
     hero: HTMLElement;
     equipped: HTMLElement;
     machines: HTMLElement;
@@ -187,7 +194,6 @@ export class UI {
       <div class="topbar">
         <h1>⚒️ Forge Loop <span class="sub">工廠迴圈 — 雛型</span></h1>
         <div class="tabrail">
-          <button class="tab-btn" data-act="tab" data-arg="map">🗺️ 地圖</button>
           <button class="tab-btn" data-act="tab" data-arg="prod">🏭 生產</button>
           <button class="tab-btn" data-act="tab" data-arg="bag">🎒 背包</button>
           <button class="tab-btn" data-act="tab" data-arg="research">🔬 研究</button>
@@ -197,16 +203,15 @@ export class UI {
       </div>
       <div class="main">
         <section class="panel main-battle">
-          <div class="battle-actions" data-zone="battleActions"></div>
-          <div class="canvas-wrap"></div>
+          <div class="canvas-wrap">
+            <div class="battle-actions" data-zone="battleActions"></div>
+            <div class="battle-options" data-zone="battleOptions"></div>
+          </div>
+          <div class="battle-subtabs" data-zone="battleInfoTabs"></div>
           <div class="hero" data-zone="hero"></div>
           <div class="equipped" data-zone="equipped"></div>
         </section>
         <aside class="drawer" data-drawer>
-          <section class="panel-section panel-section--map" data-panel="map">
-            <h2>地圖選擇</h2>
-            <div class="stages" data-zone="stages"></div>
-          </section>
           <section class="panel-section" data-panel="prod">
             <h2>生產</h2>
             <p class="hint">「增加機台」會花素材擴充台數；「＋／－」配置運轉台數；主按鈕右側可切換 1、10、100 批次。</p>
@@ -281,11 +286,24 @@ export class UI {
       if (e.target === this.victoryModalEl) return;
       this.onClick(e as MouseEvent);
     });
+    this.stageModalEl = document.createElement("div");
+    this.stageModalEl.className = "modal-backdrop";
+    this.stageModalEl.hidden = true;
+    document.body.appendChild(this.stageModalEl);
+    this.stageModalEl.addEventListener("click", (e) => {
+      if (e.target === this.stageModalEl) {
+        this.stageModalOpen = false;
+        this.renderStageModal(this.currentState);
+        return;
+      }
+      this.onClick(e as MouseEvent);
+    });
     const z = (n: string) =>
       this.root.querySelector(`[data-zone="${n}"]`) as HTMLElement;
     this.els = {
-      stages: z("stages"),
       battleActions: z("battleActions"),
+      battleOptions: z("battleOptions"),
+      battleInfoTabs: z("battleInfoTabs"),
       hero: z("hero"),
       equipped: z("equipped"),
       machines: z("machines"),
@@ -365,8 +383,8 @@ export class UI {
       return findItemByUid(state, coreUid);
     }
 
-    const slot = target.dataset.eqslot as Slot | undefined;
-    if (slot) return state.equipped[slot];
+    const slot = target.dataset.eqslot as EquipSlotId | undefined;
+    if (slot) return findEquippedInEquipSlot(state, slot);
 
     const uid = Number(target.dataset.uid);
     if (!Number.isFinite(uid)) return null;
@@ -377,7 +395,11 @@ export class UI {
   }
 
   private renderTooltip(eq: Item, state: GameState): void {
-    const equipped = eq.kind === "equipment" ? state.equipped[eq.slot] : null;
+    const equipped = eq.kind === "equipment"
+      ? eq.slot === "accessory"
+        ? state.equipped.accessory.find((item) => item?.uid === eq.uid) ?? state.equipped.accessory[0]
+        : state.equipped[eq.slot]
+      : null;
     const compareTarget = equipped?.uid === eq.uid ? null : equipped;
     const rows = getEquipmentComparisonRows(state, eq, compareTarget);
     this.tooltipEl.innerHTML = `
@@ -424,7 +446,20 @@ export class UI {
         this.setTab(arg);
         break;
       case "stage":
+        this.stageModalOpen = false;
+        this.renderStageModal(this.currentState);
         this.cb.onSelectStage(arg);
+        break;
+      case "openStageMap":
+        this.stageModalOpen = true;
+        this.renderStageModal(this.currentState);
+        break;
+      case "closeStageMap":
+        this.stageModalOpen = false;
+        this.renderStageModal(this.currentState);
+        break;
+      case "toggleAutoNext":
+        this.cb.onToggleAutoAdvanceNext();
         break;
       case "craftMachine":
         this.cb.onCraftMachine(arg, Number(t.dataset.qty ?? "1"));
@@ -448,7 +483,7 @@ export class UI {
         this.cb.onEquip(Number(arg));
         break;
       case "unequip":
-        this.cb.onUnequip(arg as Slot);
+        this.cb.onUnequip(arg as EquipSlotId);
         break;
       case "discard":
         this.cb.onDiscard(Number(arg));
@@ -479,6 +514,14 @@ export class UI {
           this.renderBagTabs();
           this.renderEquipInv(this.currentState);
           this.renderWarehouse(this.currentState);
+        }
+        break;
+      case "battleInfoTab":
+        this.activeBattleInfoTab = arg === "equipped" ? "equipped" : "stats";
+        if (this.currentState) {
+          this.renderBattleInfoTabs();
+          this.renderHeroPanel();
+          this.renderEquipped(this.currentState);
         }
         break;
       case "selectMachineQty":
@@ -522,22 +565,9 @@ export class UI {
         this.cb.onFilterAdd(arg as ItemSlot, stat, tier);
         break;
       }
-      case "filterAddCount": {
-        const stat = (
-          this.filterModalEl.querySelector(
-            `[data-fcount="${arg}"]`,
-          ) as HTMLSelectElement
-        ).value;
-        this.cb.onFilterAdd(arg as ItemSlot, stat, 0);
-        break;
-      }
-      case "filterAddRarity": {
-        const stat = (
-          this.filterModalEl.querySelector(
-            `[data-frarity="${arg}"]`,
-          ) as HTMLSelectElement
-        ).value;
-        this.cb.onFilterAdd(arg as ItemSlot, stat, 0);
+      case "filterAddQuick": {
+        const value = t.dataset.value ?? "";
+        this.cb.onFilterAdd(arg as ItemSlot, value, 0);
         break;
       }
       case "filterDel": {
@@ -618,13 +648,14 @@ export class UI {
     this.renderWarehouse(state);
     this.renderResearch();
     this.renderReincarnation(state);
+    this.renderStageModal(state);
     this.renderFilterModal(state);
     this.renderCoreModal(state);
     this.renderVictoryModal(state);
     const reincTab = this.root.querySelector<HTMLElement>("[data-reinc-tab]");
     if (reincTab) reincTab.hidden = !state.reincarnation.gameCleared && state.reincarnation.cycle <= 1;
     if (this.activeTab === "reincarnation" && !state.reincarnation.gameCleared && state.reincarnation.cycle <= 1) {
-      this.setTab("map");
+      this.setTab("prod");
     }
     this.tick(state);
   }
@@ -797,6 +828,7 @@ export class UI {
   // ---- ?芸遣銝甈∠????Ｘ ----
 
   private buildHero(): void {
+    this.renderBattleInfoTabs();
     this.els.hero.innerHTML = `
       <div class="stat-grid">
         <span>生命</span><b data-hv="hp"></b>
@@ -813,6 +845,24 @@ export class UI {
     this.els.hero.querySelectorAll<HTMLElement>("[data-hv]").forEach((el) => {
       this.heroVals[el.dataset.hv!] = el;
     });
+    this.renderHeroPanel();
+  }
+
+  private renderBattleInfoTabs(): void {
+    this.els.battleInfoTabs.innerHTML = `
+      <div class="battle-subtab-row">
+        <button class="tab-btn${this.activeBattleInfoTab === "equipped" ? " sel" : ""}" data-act="battleInfoTab" data-arg="equipped">裝備</button>
+        <button class="tab-btn${this.activeBattleInfoTab === "stats" ? " sel" : ""}" data-act="battleInfoTab" data-arg="stats">角色數據</button>
+      </div>
+    `;
+  }
+
+  private renderHeroPanel(): void {
+    const showStats = this.activeBattleInfoTab === "stats";
+    this.els.hero.hidden = !showStats;
+    this.els.hero.style.display = showStats ? "" : "none";
+    this.els.equipped.hidden = showStats;
+    this.els.equipped.style.display = showStats ? "none" : "flex";
   }
 
   private buildInventory(): void {
@@ -832,8 +882,8 @@ export class UI {
 
   // ---- ??敺??遣???----
 
-  private renderStages(state: GameState): void {
-    this.els.stages.innerHTML = unlockedStages(state).map((s) => {
+  private renderStages(state: GameState): string {
+    return unlockedStages(state).map((s) => {
       const cur = s.id === state.combat.stageId ? " sel" : "";
       const enemies = summarizeStageEnemies(s);
       const drops = summarizeStageDrops(s);
@@ -854,22 +904,50 @@ export class UI {
       nextIndex < STAGES.length &&
       nextIndex < state.progress.unlockedStageCount;
     this.els.battleActions.innerHTML = canAdvance
-      ? `<button class="battle-next-btn" data-act="stage" data-arg="${STAGES[nextIndex].id}">前往下一關</button>`
-      : "";
+      ? `<button class="battle-next-btn" data-act="openStageMap">地圖</button>
+         <button class="battle-next-btn" data-act="stage" data-arg="${STAGES[nextIndex].id}">前往下一關</button>`
+      : `<button class="battle-next-btn" data-act="openStageMap">地圖</button>`;
+    this.els.battleOptions.innerHTML = `
+      <label class="battle-check">
+        <input type="checkbox" data-act="toggleAutoNext" ${state.progress.autoAdvanceNext ? "checked" : ""}>
+        <span>自動前往下一關</span>
+      </label>
+    `;
+  }
+
+  private renderStageModal(state: GameState | null): void {
+    if (!state || !this.stageModalOpen) {
+      this.stageModalEl.hidden = true;
+      this.stageModalEl.innerHTML = "";
+      return;
+    }
+    this.stageModalEl.innerHTML = `
+      <div class="modal-card modal-card--stage" role="dialog" aria-modal="true" aria-label="地圖選關">
+        <div class="modal-head">
+          <h3>地圖選關</h3>
+          <button class="modal-close" data-act="closeStageMap">關閉</button>
+        </div>
+        <div class="stages">${this.renderStages(state)}</div>
+      </div>
+    `;
+    this.stageModalEl.hidden = false;
   }
 
   private renderEquipped(state: GameState): void {
-    const slots: Slot[] = ["weapon", "armor", "accessory"];
+    this.renderHeroPanel();
+    const slots: Array<{ id: EquipSlotId; label: string; eq: Equipment | null }> = [
+      { id: "weapon", label: SLOT_NAME.weapon, eq: state.equipped.weapon },
+      { id: "armor", label: SLOT_NAME.armor, eq: state.equipped.armor },
+      { id: "accessory1", label: "飾品 1", eq: state.equipped.accessory[0] },
+      { id: "accessory2", label: "飾品 2", eq: state.equipped.accessory[1] },
+    ];
     this.els.equipped.innerHTML = slots
-      .map((slot) => {
-        const eq: Equipment | null = state.equipped[slot];
-        if (!eq) {
-          return `<div class="eq-slot empty"><span class="slot-tag">${SLOT_NAME[slot]}</span>未裝備</div>`;
-        }
-        return `<div class="eq-slot ${rarityClassName(eq.rarity)}" data-eqtip="eq:${slot}" data-eqslot="${slot}"><span class="slot-tag">${SLOT_NAME[slot]}</span>
+      .map(({ id, label, eq }) => {
+        if (!eq) return `<div class="eq-slot empty"><span class="slot-tag">${label}</span>未裝備</div>`;
+        return `<div class="eq-slot ${rarityClassName(eq.rarity)}" data-eqtip="eq:${id}" data-eqslot="${id}"><span class="slot-tag">${label}</span>
           <span class="eq-name">${eq.icon} ${eq.name}</span>
           <span class="eq-stats">${describeEquip(eq, state)}</span>
-          <button data-act="unequip" data-arg="${slot}">卸下</button></div>`;
+          <button data-act="unequip" data-arg="${id}">卸下</button></div>`;
       })
       .join("");
   }
@@ -1152,18 +1230,20 @@ export class UI {
           <select data-ftier="${slot}">${tiers}</select>
           <button class="fs-add-btn" data-act="filterAdd" data-arg="${slot}">新增條件</button>
         </div>
-        <div class="fs-add">
-          <select data-fcount="${slot}">
-            ${[1, 2, 3, 4].map((count) => `<option value="__minAffixes__:${count}">變動詞綴至少 ${count} 詞</option>`).join("")}
-          </select>
-          <button class="fs-add-btn" data-act="filterAddCount" data-arg="${slot}">新增條件</button>
+        <div class="fs-quick">
+          <div class="fs-quick__label">變動詞綴數</div>
+          <div class="fs-quick__row">
+            ${[1, 2, 3, 4]
+              .map((count) => `<button class="fs-quick-btn" data-act="filterAddQuick" data-arg="${slot}" data-value="__minAffixes__:${count}">至少 ${count} 詞</button>`)
+              .join("")}
+          </div>
         </div>
-        <div class="fs-add">
-          <select data-frarity="${slot}">
-            <option value="__minRarity__:magic">稀有度至少魔法</option>
-            <option value="__minRarity__:rare">稀有度至少稀有</option>
-          </select>
-          <button class="fs-add-btn" data-act="filterAddRarity" data-arg="${slot}">新增條件</button>
+        <div class="fs-quick">
+          <div class="fs-quick__label">稀有度</div>
+          <div class="fs-quick__row">
+            <button class="fs-quick-btn" data-act="filterAddQuick" data-arg="${slot}" data-value="__minRarity__:magic">至少魔法</button>
+            <button class="fs-quick-btn" data-act="filterAddQuick" data-arg="${slot}" data-value="__minRarity__:rare">至少稀有</button>
+          </div>
         </div>
         <button class="btn-sweep" data-act="filterSweep">套用到現有背包</button>
       </div>
@@ -1526,9 +1606,16 @@ function findItemByUid(state: GameState, uid: number): Item | null {
   const direct =
     state.equipmentInv.find((item) => item.uid === uid)
     ?? state.warehouseInv.find((item) => item.uid === uid)
-    ?? Object.values(state.equipped).find((item) => item?.uid === uid)
+    ?? state.equipped.weapon
     ?? null;
-  if (direct) return direct;
+  if (direct?.uid === uid) return direct;
+
+  const equippedDirect = [
+    state.equipped.armor,
+    ...state.equipped.accessory,
+  ].find((item) => item?.uid === uid)
+    ?? null;
+  if (equippedDirect) return equippedDirect;
 
   for (const machine of Object.values(state.machines)) {
     const core = machine.cores.find((item) => item?.uid === uid);

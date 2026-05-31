@@ -16,7 +16,7 @@ export function createInitialState(): GameState {
     equipmentInv: [],
     warehouseInv: [],
     filters: { weapon: [], armor: [], accessory: [], core: [] },
-    equipped: { weapon: null, armor: null, accessory: null },
+    equipped: { weapon: null, armor: null, accessory: [null, null] },
     combat: {
       stageId: STAGES[0].id,
       waveIndex: 0,
@@ -25,6 +25,8 @@ export function createInitialState(): GameState {
       heroHp: 0, // 由 combat 初始化
       heroAtkTimer: 0,
       enemyAtkTimer: 0,
+      clearPause: 0,
+      pendingStageId: null,
     },
     research: { points: {}, stages: {} },
     baseResearch: { weapon: 0, armor: 0, accessory: 0, core: 0 },
@@ -46,6 +48,7 @@ export function createInitialState(): GameState {
     progress: {
       unlockedStageCount: 1,
       coreUnlocked: false,
+      autoAdvanceNext: false,
     },
     nextEquipId: 1,
   };

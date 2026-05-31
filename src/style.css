@@ -101,10 +101,13 @@ body {
   min-height: 0;
   gap: 12px;
   align-items: flex-start;
+  justify-content: flex-start;
 }
 .main-battle {
-  flex: 1 1 auto;
-  min-width: 0;
+  flex: 0 0 calc(50% - 6px);
+  width: calc(50% - 6px);
+  max-width: calc(50% - 6px);
+  min-width: 320px;
   min-height: 0;
 }
 .drawer {
@@ -173,6 +176,12 @@ body {
   .main {
     flex-direction: column;
   }
+  .main-battle {
+    width: 100%;
+    max-width: none;
+    flex-basis: auto;
+    min-width: 0;
+  }
   .drawer {
     width: 100%;
     flex-basis: auto;
@@ -216,6 +225,8 @@ body {
   border-radius: 8px;
   overflow: hidden;
   line-height: 0;
+  flex: 0 0 auto;
+  position: relative;
 }
 #battle {
   width: 100%;
@@ -238,10 +249,19 @@ body {
 .battle-actions {
   position: absolute;
   top: 12px;
+  left: 12px;
   right: 12px;
   z-index: 2;
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
+  gap: 8px;
+  pointer-events: none;
+}
+.battle-options {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  z-index: 2;
   pointer-events: none;
 }
 .battle-next-btn {
@@ -258,6 +278,22 @@ body {
 }
 .battle-next-btn:hover {
   filter: brightness(1.08);
+}
+.battle-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  pointer-events: auto;
+  background: color-mix(in srgb, var(--panel) 92%, #000);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 6px 10px;
+  color: var(--text);
+  font-size: 12px;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.28);
+}
+.battle-check input {
+  margin: 0;
 }
 .stage-btn {
   background: var(--panel2);
@@ -297,6 +333,20 @@ body {
 
 .hero {
   margin-top: 12px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+.battle-subtabs {
+  margin-top: 12px;
+}
+.battle-subtab-row {
+  display: flex;
+  gap: 6px;
+}
+.battle-subtab-row .tab-btn {
+  flex: 1 1 0;
 }
 .stat-grid {
   display: grid;
@@ -1249,6 +1299,35 @@ body {
   cursor: pointer;
   font-size: 12px;
 }
+.fs-quick {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+}
+.fs-quick__label {
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 600;
+}
+.fs-quick__row {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.fs-quick-btn {
+  background: transparent;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  border-radius: 999px;
+  padding: 4px 10px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+}
+.fs-quick-btn:hover {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
 .btn-sweep {
   margin-top: 6px;
   width: 100%;
@@ -1285,6 +1364,9 @@ body {
   border-radius: 12px;
   box-shadow: 0 18px 48px rgba(0, 0, 0, 0.4);
   padding: 14px;
+}
+.modal-card--stage {
+  width: min(720px, calc(100vw - 32px));
 }
 .modal-head {
   display: flex;

@@ -24,6 +24,7 @@ export const HERO_BASE: StatBlock = {
   hpRegen: 0,
   dmgReductionPct: 0,
   blockChance: 0,
+  defPenPct: 0,
 };
 
 /** 英雄基礎攻擊間隔（秒），實際間隔 = 此值 / (1 + haste)。 */
@@ -172,7 +173,7 @@ const E_DEF = [
 const Z_INTERVAL = [1.4, 1.3, 1.25, 1.2, 1.15];
 
 // 魔王數值：直接指定，與一般敵人曲線解耦，方便獨立調整（逐區加碼抵銷生產雪球；待平衡）
-const BOSS_HP = [234, 728, 2080, 11232, 24600];
+const BOSS_HP = [234, 1456, 2080, 11232, 24600];
 const BOSS_ATK = [13, 21.6, 83, 220, 180];
 const BOSS_INTERVAL = [1.4, 0.65, 1.25, 1.8, 0.95];
 
@@ -210,6 +211,7 @@ function buildStages(): StageDef[] {
       maxHp: E_HP[z][sub],
       atk: E_ATK[z][sub],
       def: E_DEF[z][sub],
+      defPenPct: 0,
       atkInterval: Z_INTERVAL[z],
       drops: buildDrops(i, false),
     };
@@ -222,6 +224,7 @@ function buildStages(): StageDef[] {
         maxHp: BOSS_HP[z],
         atk: BOSS_ATK[z],
         def: E_DEF[z][3],
+        defPenPct: z === 1 ? 0.5 : 0,
         atkInterval: BOSS_INTERVAL[z],
         drops: buildDrops(i, true),
       };
