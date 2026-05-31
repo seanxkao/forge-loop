@@ -1,6 +1,7 @@
 import type { AffixStat, Equipment, GameState, Item, Slot, StatBlock } from "./types.ts";
-import { baseBonus, strengthBonus } from "./progression.ts";
+import { baseBonus } from "./progression.ts";
 import { affixLabel, isPctAffix } from "./affixMeta.ts";
+import { affixBonusMultiplier } from "./itemAffixes.ts";
 
 export type EquipmentViewKey = AffixStat | "physicalDamage";
 
@@ -104,7 +105,7 @@ function getEquipmentValues(state: GameState, eq: Equipment): Partial<Record<Aff
     values[key] = (values[key] ?? 0) + (rawValue as number) * baseMult;
   }
   for (const affix of eq.affixes) {
-    values[affix.stat] = (values[affix.stat] ?? 0) + affix.value * (1 + strengthBonus(state, affix.stat));
+    values[affix.stat] = (values[affix.stat] ?? 0) + affix.value * affixBonusMultiplier(state, eq, affix);
   }
   return values;
 }
@@ -112,7 +113,7 @@ function getEquipmentValues(state: GameState, eq: Equipment): Partial<Record<Aff
 function getCoreValues(state: GameState, item: Item): Partial<Record<AffixStat, number>> {
   const values: Partial<Record<AffixStat, number>> = {};
   for (const affix of item.affixes) {
-    values[affix.stat] = (values[affix.stat] ?? 0) + affix.value * (1 + strengthBonus(state, affix.stat));
+    values[affix.stat] = (values[affix.stat] ?? 0) + affix.value * affixBonusMultiplier(state, item, affix);
   }
   return values;
 }

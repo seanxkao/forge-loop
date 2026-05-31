@@ -1,9 +1,9 @@
-import type { GameState, Slot } from "./types.ts";
+import type { BaseResearchSlot, GameState } from "./types.ts";
 
 export const BASE_STRENGTH_PER_STAGE = 0.2;
 export const AFFIX_STRENGTH_PER_STAGE = 0.1;
 
-export function baseBonus(state: GameState, slot: Slot): number {
+export function baseBonus(state: GameState, slot: BaseResearchSlot): number {
   return BASE_STRENGTH_PER_STAGE * (state.baseResearch[slot] ?? 0);
 }
 

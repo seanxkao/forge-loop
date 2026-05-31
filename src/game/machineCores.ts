@@ -12,8 +12,8 @@ import type {
   MachineState,
   MachineTargetKind,
 } from "./types.ts";
-import { strengthBonus } from "./research.ts";
 import { affixTags, isPctAffix, withDerivedAffixMeta } from "./affixMeta.ts";
+import { affixBonusMultiplier } from "./itemAffixes.ts";
 
 export interface MachineCoreEffects {
   productivity: number;
@@ -136,7 +136,7 @@ export function boostAffixTier(defs: AffixDef[], affixes: Affix[]): void {
 }
 
 export function effectiveAffixValue(state: GameState, affix: Affix): number {
-  return affix.value * (1 + strengthBonus(state, affix.stat));
+  return affix.value * affixBonusMultiplier(state, { kind: "core", slot: "core" }, affix);
 }
 
 export function rollTierValue(min: number, max: number, pct: boolean): number {

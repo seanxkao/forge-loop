@@ -434,11 +434,21 @@ body {
 }
 .bag-subtabs {
   display: flex;
+  flex-direction: column;
   gap: 6px;
   margin-bottom: 10px;
 }
-.bag-subtabs .tab-btn {
+.bag-tab-row,
+.bag-filter-row {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.bag-tab-row .tab-btn {
   flex: 1;
+}
+.bag-filter-btn {
+  flex: 0 1 auto;
 }
 .machine-card .mc-top {
   display: flex;
@@ -1039,6 +1049,10 @@ body {
     justify-content: flex-start;
   }
   .bag-subtabs {
+    flex-direction: column;
+  }
+  .bag-tab-row,
+  .bag-filter-row {
     flex-direction: column;
   }
 }

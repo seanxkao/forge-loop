@@ -18,11 +18,12 @@ import {
 import { rarityClassName } from "../game/rarity.ts";
 import { stageIndexById, unlockedStages } from "../game/unlocks.ts";
 import { clampTooltipPosition } from "./tooltipPosition.ts";
+import { affixBonusMultiplier, countVariableAffixes } from "../game/itemAffixes.ts";
+import type { BaseResearchSlot, FilterEntry, ItemRarity } from "../game/types.ts";
 import {
   stageCost,
   DISMANTLE_CYCLE,
   dismantleableCount,
-  strengthBonus,
   baseStageCost,
   baseBonus,
   baseItemsAvailable,
@@ -52,7 +53,7 @@ export interface UICallbacks {
   onToggleCoreCrafterActive(): void;
   onSocketCore(kind: MachineTargetKind, id: string, slotIndex: number, uid: number, fromWarehouse: boolean): void;
   onUnsocketCore(kind: MachineTargetKind, id: string, slotIndex: number): void;
-  onResearchBase(slot: Slot): void;
+  onResearchBase(slot: BaseResearchSlot): void;
   onVictoryContinue(): void;
   onReincarnate(buff: ReincarnationBuff): void;
   onReset(): void;
@@ -79,6 +80,7 @@ const INV_RENDER_CAP = 100;
 export class UI {
   private activeTab: string | null = null;
   private activeBagTab: "main" | "warehouse" = "main";
+  private activeBagFilter: ItemSlot | "all" = "all";
   private currentState: GameState | null = null;
   private drawerEl!: HTMLElement;
   private tooltipEl!: HTMLElement;
@@ -121,7 +123,7 @@ export class UI {
     fill: HTMLElement;
   }[] = [];
   private baseRows: {
-    slot: Slot;
+    slot: BaseResearchSlot;
     row: HTMLElement;
     bonus: HTMLElement;
     prog: HTMLElement;
@@ -130,9 +132,9 @@ export class UI {
   private researchDisp: Record<string, number> = {}; // easing ?函?憿舐內??
   private lastStages: Record<string, number> = {}; // ?菜葫??
   private flashUntil: Record<string, number> = {}; // ???唳???嚗erformance.now嚗?
-  private baseResearchDisp: Record<Slot, number> = { weapon: 0, armor: 0, accessory: 0 };
-  private lastBaseStages: Record<Slot, number> = { weapon: 0, armor: 0, accessory: 0 };
-  private baseFlashUntil: Record<Slot, number> = { weapon: 0, armor: 0, accessory: 0 };
+  private baseResearchDisp: Record<BaseResearchSlot, number> = { weapon: 0, armor: 0, accessory: 0, core: 0 };
+  private lastBaseStages: Record<BaseResearchSlot, number> = { weapon: 0, armor: 0, accessory: 0, core: 0 };
+  private baseFlashUntil: Record<BaseResearchSlot, number> = { weapon: 0, armor: 0, accessory: 0, core: 0 };
   private lastCycleSeen = 1;
 
   // tick() ?函?敹怠?蝭暺?
@@ -225,7 +227,7 @@ export class UI {
           </section>
           <section class="panel-section" data-panel="research">
             <h2>研究</h2>
-            <p class="hint">啟動拆解器會自動銷毀倉庫裝備；每件裝備都會推進對應槽位的基底研究，而 T3 以上詞綴會另外轉成詞綴研究值。詞綴研究每階永久 +10%，基底研究每階永久 +20%。</p>
+            <p class="hint">啟動拆解器會自動銷毀倉庫裝備；每件裝備都會推進對應類型的基底研究與固定詞綴，而 T3 以上的變動詞綴會另外轉成詞綴研究值。詞綴研究每階永久 +10%，基底研究每階永久 +20%。</p>
             <div class="research" data-zone="research"></div>
           </section>
           <section class="panel-section" data-panel="reincarnation">
@@ -471,6 +473,14 @@ export class UI {
           this.renderWarehouse(this.currentState);
         }
         break;
+      case "bagFilter":
+        this.activeBagFilter = arg === "all" ? "all" : arg as ItemSlot;
+        if (this.currentState) {
+          this.renderBagTabs();
+          this.renderEquipInv(this.currentState);
+          this.renderWarehouse(this.currentState);
+        }
+        break;
       case "selectMachineQty":
         this.machineBuildQty[arg] = Number(t.dataset.qty ?? "1");
         if (this.currentState) this.renderMachines(this.currentState);
@@ -509,7 +519,25 @@ export class UI {
             ) as HTMLSelectElement
           ).value,
         );
-        this.cb.onFilterAdd(arg as Slot, stat, tier);
+        this.cb.onFilterAdd(arg as ItemSlot, stat, tier);
+        break;
+      }
+      case "filterAddCount": {
+        const stat = (
+          this.filterModalEl.querySelector(
+            `[data-fcount="${arg}"]`,
+          ) as HTMLSelectElement
+        ).value;
+        this.cb.onFilterAdd(arg as ItemSlot, stat, 0);
+        break;
+      }
+      case "filterAddRarity": {
+        const stat = (
+          this.filterModalEl.querySelector(
+            `[data-frarity="${arg}"]`,
+          ) as HTMLSelectElement
+        ).value;
+        this.cb.onFilterAdd(arg as ItemSlot, stat, 0);
         break;
       }
       case "filterDel": {
@@ -562,7 +590,7 @@ export class UI {
         this.cb.onToggleCoreCrafterActive();
         break;
       case "researchBase":
-        this.cb.onResearchBase(arg as Slot);
+        this.cb.onResearchBase(arg as BaseResearchSlot);
         break;
       case "victoryContinue":
         this.cb.onVictoryContinue();
@@ -605,9 +633,9 @@ export class UI {
     this.researchDisp = {};
     this.lastStages = {};
     this.flashUntil = {};
-    this.baseResearchDisp = { weapon: 0, armor: 0, accessory: 0 };
-    this.lastBaseStages = { weapon: 0, armor: 0, accessory: 0 };
-    this.baseFlashUntil = { weapon: 0, armor: 0, accessory: 0 };
+    this.baseResearchDisp = { weapon: 0, armor: 0, accessory: 0, core: 0 };
+    this.lastBaseStages = { weapon: 0, armor: 0, accessory: 0, core: 0 };
+    this.baseFlashUntil = { weapon: 0, armor: 0, accessory: 0, core: 0 };
   }
 
   /** 瘥??澆嚗??湔?詨潸?璅??嚗??踵?隞颱?蝭暺?*/
@@ -1059,9 +1087,23 @@ export class UI {
   }
 
   private renderBagTabs(): void {
+    const filterButtons: Array<{ key: ItemSlot | "all"; label: string }> = [
+      { key: "all", label: "全部" },
+      { key: "weapon", label: "武器" },
+      { key: "armor", label: "防具" },
+      { key: "accessory", label: "飾品" },
+      { key: "core", label: "核心" },
+    ];
     this.els.bagTabs.innerHTML = `
-      <button class="tab-btn${this.activeBagTab === "main" ? " sel" : ""}" data-act="bagTab" data-arg="main">主背包</button>
-      <button class="tab-btn${this.activeBagTab === "warehouse" ? " sel" : ""}" data-act="bagTab" data-arg="warehouse">倉庫</button>
+      <div class="bag-tab-row">
+        <button class="tab-btn${this.activeBagTab === "main" ? " sel" : ""}" data-act="bagTab" data-arg="main">主背包</button>
+        <button class="tab-btn${this.activeBagTab === "warehouse" ? " sel" : ""}" data-act="bagTab" data-arg="warehouse">倉庫</button>
+      </div>
+      <div class="bag-filter-row">
+        ${filterButtons
+          .map((filter) => `<button class="tab-btn bag-filter-btn${this.activeBagFilter === filter.key ? " sel" : ""}" data-act="bagFilter" data-arg="${filter.key}">${filter.label}</button>`)
+          .join("")}
+      </div>
     `;
     const warehouseTitle = this.root.querySelector("[data-bag-warehouse-title]") as HTMLElement | null;
     const equipHint = this.root.querySelector("[data-bag-equip-hint]") as HTMLElement | null;
@@ -1079,16 +1121,14 @@ export class UI {
     }
 
     const slot = this.filterModalSlot;
-    const defs = slot === "core"
-      ? [CORE_RECIPE.fixedAffix, ...CORE_RECIPE.affixPool]
-      : RECIPES[slot].affixPool;
+    const defs = slot === "core" ? CORE_RECIPE.affixPool : RECIPES[slot].affixPool;
     const labelOf = (st: string) => st === "__any__" ? "任何詞綴" : defs.find((d) => d.stat === st)?.label ?? st;
     const entries = state.filters[slot] ?? [];
     const list = entries.length
       ? entries
           .map(
             (e, i) =>
-              `<span class="fs-entry">${labelOf(e.stat)} ≥ T${e.minTier}
+              `<span class="fs-entry">${describeFilterEntry(e, labelOf)}
               <button class="fs-x" data-act="filterDel" data-arg="${slot}:${i}">✕</button></span>`,
           )
           .join("")
@@ -1111,6 +1151,19 @@ export class UI {
           <select data-fstat="${slot}">${opts}</select>
           <select data-ftier="${slot}">${tiers}</select>
           <button class="fs-add-btn" data-act="filterAdd" data-arg="${slot}">新增條件</button>
+        </div>
+        <div class="fs-add">
+          <select data-fcount="${slot}">
+            ${[1, 2, 3, 4].map((count) => `<option value="__minAffixes__:${count}">變動詞綴至少 ${count} 詞</option>`).join("")}
+          </select>
+          <button class="fs-add-btn" data-act="filterAddCount" data-arg="${slot}">新增條件</button>
+        </div>
+        <div class="fs-add">
+          <select data-frarity="${slot}">
+            <option value="__minRarity__:magic">稀有度至少魔法</option>
+            <option value="__minRarity__:rare">稀有度至少稀有</option>
+          </select>
+          <button class="fs-add-btn" data-act="filterAddRarity" data-arg="${slot}">新增條件</button>
         </div>
         <button class="btn-sweep" data-act="filterSweep">套用到現有背包</button>
       </div>
@@ -1152,19 +1205,20 @@ export class UI {
   private renderEquipInv(state: GameState): void {
     this.lastEquipLen = state.equipmentInv.length;
     this.els.equipInv.style.display = this.activeBagTab === "main" ? "" : "none";
+    const filteredItems = state.equipmentInv.filter((item) => this.matchesBagFilter(item));
     if (state.equipmentInv.length === 0) {
       this.els.equipInv.innerHTML = `<p class="empty-note">尚無裝備，去製裝吧。</p>`;
       return;
     }
     const head = `<div class="inv-head">
-      <span>${state.equipmentInv.length} 件</span>
+      <span>${filteredItems.length} / ${state.equipmentInv.length} 件</span>
       <button class="ghost btn-discard-all" data-act="discardAll">全部拆除</button>
     </div>`;
-    const items = state.equipmentInv
+    const items = filteredItems
       .slice(0, INV_RENDER_CAP)
       .map(
         (eq) => `<div class="inv-item ${rarityClassName(eq.rarity)}" data-uid="${eq.uid}" data-bag="main" data-eqtip="main:${eq.uid}">
-        <span class="ii-name">${eq.icon} ${eq.name}${eq.kind === "core" ? " <span class=\"slot-tag\">核心</span>" : ""} <span class="ii-cnt">${eq.affixes.length}詞</span></span>
+        <span class="ii-name">${eq.icon} ${eq.name}${eq.kind === "core" ? " <span class=\"slot-tag\">核心</span>" : ""} <span class="ii-cnt">${countVariableAffixes(eq)}詞</span></span>
         <span class="ii-stats">${describeEquip(eq, state)}</span>
         <span class="ii-btns">
           ${eq.kind === "equipment" ? `<button data-act="equip" data-arg="${eq.uid}">裝備</button>` : ""}
@@ -1174,10 +1228,11 @@ export class UI {
       </div>`,
       )
       .join("");
-    const more = state.equipmentInv.length - INV_RENDER_CAP;
+    const more = filteredItems.length - INV_RENDER_CAP;
     const moreNote =
       more > 0 ? `<p class="empty-note">…還有 ${more} 件（已隱藏以維持效能）</p>` : "";
-    this.els.equipInv.innerHTML = head + items + moreNote;
+    const emptyFiltered = filteredItems.length === 0 ? `<p class="empty-note">目前篩選下沒有道具。</p>` : "";
+    this.els.equipInv.innerHTML = head + emptyFiltered + items + moreNote;
   }
 
   private renderResearch(): void {
@@ -1202,12 +1257,12 @@ export class UI {
           ${renderQtyButtons("selectDismQty", "dism", qty, "mc-mini-btn", [1, 10, 100])}
         </div>
       </div>
-      <h3 class="research-sub">基底研究（拆解該槽裝備後自動累積，永久提升基底）</h3>
+      <h3 class="research-sub">基底研究（拆解該類裝備後自動累積，永久提升基底與固定詞綴）</h3>
       <div class="branks">
-        ${(["weapon", "armor", "accessory"] as Slot[])
+        ${(["weapon", "armor", "accessory", "core"] as BaseResearchSlot[])
           .map(
             (slot) => `<div class="brank" data-bslot="${slot}">
-            <span class="rt-name">${SLOT_NAME[slot]}基底 <b class="rt-bonus" data-bbonus></b></span>
+            <span class="rt-name">${baseResearchLabel(slot)} <b class="rt-bonus" data-bbonus></b></span>
             <span class="rt-prog" data-bprog></span>
             <span class="cell-bar rt-bar"><i data-bfill></i></span>
           </div>`,
@@ -1243,7 +1298,7 @@ export class UI {
     this.baseRows = [];
     this.els.research.querySelectorAll<HTMLElement>("[data-bslot]").forEach((row) => {
       this.baseRows.push({
-        slot: row.dataset.bslot as Slot,
+        slot: row.dataset.bslot as BaseResearchSlot,
         row,
         bonus: row.querySelector<HTMLElement>("[data-bbonus]")!,
         prog: row.querySelector<HTMLElement>("[data-bprog]")!,
@@ -1314,19 +1369,20 @@ export class UI {
   private renderWarehouse(state: GameState): void {
     this.lastWareLen = state.warehouseInv.length;
     this.els.warehouse.style.display = this.activeBagTab === "warehouse" ? "" : "none";
+    const filteredItems = state.warehouseInv.filter((item) => this.matchesBagFilter(item));
     if (state.warehouseInv.length === 0) {
       this.els.warehouse.innerHTML = `<p class="empty-note">倉庫是空的。</p>`;
       return;
     }
     const head = `<div class="inv-head">
-      <span>${state.warehouseInv.length} 件</span>
+      <span>${filteredItems.length} / ${state.warehouseInv.length} 件</span>
       <button class="ghost btn-discard-all" data-act="discardAllWare">全部拆除</button>
     </div>`;
-    const items = state.warehouseInv
+    const items = filteredItems
       .slice(0, INV_RENDER_CAP)
       .map(
         (eq) => `<div class="inv-item ${rarityClassName(eq.rarity)}" data-uid="${eq.uid}" data-bag="ware" data-eqtip="ware:${eq.uid}">
-        <span class="ii-name">${eq.icon} ${eq.name}${eq.kind === "core" ? " <span class=\"slot-tag\">核心</span>" : ""} <span class="ii-cnt">${eq.affixes.length}詞</span></span>
+        <span class="ii-name">${eq.icon} ${eq.name}${eq.kind === "core" ? " <span class=\"slot-tag\">核心</span>" : ""} <span class="ii-cnt">${countVariableAffixes(eq)}詞</span></span>
         <span class="ii-stats">${describeEquip(eq, state)}</span>
         <span class="ii-btns">
           <button data-act="fromWare" data-arg="${eq.uid}">←取回</button>
@@ -1335,10 +1391,17 @@ export class UI {
       </div>`,
       )
       .join("");
-    const more = state.warehouseInv.length - INV_RENDER_CAP;
+    const more = filteredItems.length - INV_RENDER_CAP;
     const moreNote =
       more > 0 ? `<p class="empty-note">…還有 ${more} 件（已隱藏以維持效能）</p>` : "";
-    this.els.warehouse.innerHTML = head + items + moreNote;
+    const emptyFiltered = filteredItems.length === 0 ? `<p class="empty-note">目前篩選下沒有道具。</p>` : "";
+    this.els.warehouse.innerHTML = head + emptyFiltered + items + moreNote;
+  }
+
+  private matchesBagFilter(item: Item): boolean {
+    if (this.activeBagFilter === "all") return true;
+    if (this.activeBagFilter === "core") return item.kind === "core";
+    return item.kind === "equipment" && item.slot === this.activeBagFilter;
   }
 }
 
@@ -1357,7 +1420,7 @@ function allAffixDefs(includeCore: boolean): { stat: string; label: string }[] {
     }
   }
   if (includeCore) {
-    for (const d of [CORE_RECIPE.fixedAffix, ...CORE_RECIPE.affixPool]) {
+    for (const d of CORE_RECIPE.affixPool) {
       if (!seen.has(d.stat)) {
         seen.add(d.stat);
         out.push({ stat: d.stat, label: d.label });
@@ -1365,6 +1428,22 @@ function allAffixDefs(includeCore: boolean): { stat: string; label: string }[] {
     }
   }
   return out;
+}
+
+function describeFilterEntry(entry: FilterEntry, labelOf: (stat: string) => string): string {
+  if (entry.kind === "affixTier") return `${labelOf(entry.stat)} ≥ T${entry.minTier}`;
+  if (entry.kind === "minVariableAffixes") return `變動詞綴至少 ${entry.count} 詞`;
+  return `稀有度至少 ${rarityLabel(entry.rarity)}`;
+}
+
+function rarityLabel(rarity: ItemRarity): string {
+  if (rarity === "magic") return "魔法";
+  if (rarity === "rare") return "稀有";
+  return "一般";
+}
+
+function baseResearchLabel(slot: BaseResearchSlot): string {
+  return slot === "core" ? "核心基底" : `${SLOT_NAME[slot]}基底`;
 }
 
 function cost(c: Record<string, number>): string {
@@ -1417,9 +1496,10 @@ function describeEquip(eq: Item, state: GameState): string {
       })()
     : "";
   const aff = eq.affixes.map((a) => {
-    const bonus = strengthBonus(state, a.stat);
+    const mult = affixBonusMultiplier(state, eq, a);
+    const bonus = mult - 1;
     const buff = bonus > 0 ? ` <span class="aff-buff">(+${Math.round(bonus * 100)}%)</span>` : "";
-    const eff = a.value * (1 + bonus);
+    const eff = a.value * mult;
     const val = a.pct
       ? (a.stat === "upgradeTierChance" ? formatSpecialPct(eff, 2) : Math.round(eff * 100) + "%")
       : fmtNum(eff);

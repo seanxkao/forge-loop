@@ -27,8 +27,8 @@ export function createInitialState(): GameState {
       enemyAtkTimer: 0,
     },
     research: { points: {}, stages: {} },
-    baseResearch: { weapon: 0, armor: 0, accessory: 0 },
-    baseResearchPoints: { weapon: 0, armor: 0, accessory: 0 },
+    baseResearch: { weapon: 0, armor: 0, accessory: 0, core: 0 },
+    baseResearchPoints: { weapon: 0, armor: 0, accessory: 0, core: 0 },
     dismantler: { count: 1, active: 1, progress: 0, cores: [null, null] },
     // 起手免費附三槽製裝機各一台
     crafters: {

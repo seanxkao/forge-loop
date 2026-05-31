@@ -2,6 +2,7 @@ import type { GameState, Item } from "./types.ts";
 import { deriveLegacyItemRarity } from "./rarity.ts";
 import { SAVE_VERSION, createInitialState } from "./state.ts";
 import { normalizeUnlockProgress } from "./unlocks.ts";
+import { countVariableAffixes } from "./itemAffixes.ts";
 
 const KEY = "forge-loop-save";
 const LEGACY_BLOCK_STAT = "critDmgTakenReductionPct";
@@ -32,7 +33,7 @@ function normalizeLegacyBlockStat(state: GameState): void {
 
   for (const slot of Object.keys(state.filters) as Array<keyof typeof state.filters>) {
     for (const entry of state.filters[slot]) {
-      if ((entry.stat as string) === LEGACY_BLOCK_STAT) {
+      if (entry.kind === "affixTier" && (entry.stat as string) === LEGACY_BLOCK_STAT) {
         entry.stat = BLOCK_STAT as typeof entry.stat;
       }
     }
@@ -66,7 +67,7 @@ function normalizeLegacyItemKinds(state: GameState): void {
 function normalizeLegacyRarity(state: GameState): void {
   const normalizeItem = (item: Item | null | undefined) => {
     if (!item || item.rarity) return;
-    item.rarity = deriveLegacyItemRarity(item.kind, item.affixes.length);
+    item.rarity = deriveLegacyItemRarity(item.kind, countVariableAffixes(item));
   };
 
   state.equipmentInv.forEach(normalizeItem);
@@ -76,6 +77,16 @@ function normalizeLegacyRarity(state: GameState): void {
   Object.values(state.crafters).forEach((crafter) => crafter.cores.forEach(normalizeItem));
   state.dismantler.cores.forEach(normalizeItem);
   state.coreCrafter.cores.forEach(normalizeItem);
+}
+
+function normalizeLegacyFilters(state: GameState): void {
+  for (const slot of Object.keys(state.filters) as Array<keyof typeof state.filters>) {
+    state.filters[slot] = state.filters[slot].map((entry) => {
+      if ("kind" in entry) return entry;
+      const legacy = entry as { stat: string; minTier: number };
+      return { kind: "affixTier", stat: legacy.stat as never, minTier: legacy.minTier };
+    });
+  }
 }
 
 /** 以「現行 schema（預設值）」為形狀，把舊存檔深層合併進來。
@@ -109,6 +120,7 @@ export function load(): GameState {
     const migrated = migrate(JSON.parse(raw), createInitialState()) as GameState;
     normalizeLegacyItemKinds(migrated);
     normalizeLegacyRarity(migrated);
+    normalizeLegacyFilters(migrated);
     normalizeLegacyBlockStat(migrated);
     normalizeUnlockProgress(migrated);
     migrated.version = SAVE_VERSION;

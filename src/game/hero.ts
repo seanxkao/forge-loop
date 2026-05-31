@@ -1,6 +1,7 @@
 import type { GameState, StatBlock, Equipment } from "./types.ts";
 import { HERO_BASE, HERO_BASE_INTERVAL } from "./heroBase.ts";
-import { strengthBonus, baseBonus } from "./research.ts";
+import { baseBonus } from "./research.ts";
+import { affixBonusMultiplier } from "./itemAffixes.ts";
 import { powerMultiplier } from "./reincarnation.ts";
 
 const DMG_REDUCTION_CAP = 0.9;
@@ -19,7 +20,7 @@ export function deriveStats(state: GameState): StatBlock {
     let flat = 0;
     let local = 0;
     for (const aff of w.affixes) {
-      const v = aff.value * (1 + strengthBonus(state, aff.stat));
+      const v = aff.value * affixBonusMultiplier(state, w, aff);
       if (aff.stat === "atk") flat += v;
       else if (aff.stat === "localPhysPct") local += v;
       else if (aff.stat in s) s[aff.stat as keyof StatBlock] += v;
@@ -49,7 +50,7 @@ function applyGlobal(state: GameState, s: StatBlock, eq: Equipment): void {
   }
   for (const aff of eq.affixes) {
     if (aff.stat in s) {
-      s[aff.stat as keyof StatBlock] += aff.value * (1 + strengthBonus(state, aff.stat));
+      s[aff.stat as keyof StatBlock] += aff.value * affixBonusMultiplier(state, eq, aff);
     }
   }
 }

@@ -122,7 +122,15 @@ const ui = new UI(root, canvas, {
     ui.refresh(state);
   },
   onFilterAdd: (slot, stat, minTier) => {
-    state.filters[slot].push({ stat: stat as FilterEntry["stat"], minTier });
+    let entry: FilterEntry;
+    if (stat.startsWith("__minAffixes__:")) {
+      entry = { kind: "minVariableAffixes", count: Number(stat.split(":")[1] ?? "0") };
+    } else if (stat.startsWith("__minRarity__:")) {
+      entry = { kind: "minRarity", rarity: stat.split(":")[1] as "magic" | "rare" };
+    } else {
+      entry = { kind: "affixTier", stat: stat as Extract<FilterEntry, { kind: "affixTier" }>["stat"], minTier };
+    }
+    state.filters[slot].push(entry);
     ui.refresh(state);
   },
   onFilterDel: (slot, index) => {

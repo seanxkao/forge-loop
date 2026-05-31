@@ -1,18 +1,31 @@
 import type { GameState, Item } from "./types.ts";
+import { countVariableAffixes } from "./itemAffixes.ts";
 
-/** 裝備是否通過該槽的過濾條件：每列要求的屬性都存在且品質階 ≥ 門檻（AND）。 */
+const RARITY_RANK = {
+  normal: 0,
+  magic: 1,
+  rare: 2,
+} as const;
+
 export function passesFilter(state: GameState, item: Item): boolean {
   const entries = state.filters[item.slot] ?? [];
-  for (const e of entries) {
-    const ok = e.stat === "__any__"
-      ? item.affixes.some((a) => a.tier >= e.minTier)
-      : item.affixes.some((a) => a.stat === e.stat && a.tier >= e.minTier);
+  for (const entry of entries) {
+    const ok = entry.kind === "affixTier"
+      ? (
+        entry.stat === "__any__"
+          ? item.affixes.some((affix) => !affix.fixed && affix.tier >= entry.minTier)
+          : item.affixes.some(
+            (affix) => !affix.fixed && affix.stat === entry.stat && affix.tier >= entry.minTier,
+          )
+      )
+      : entry.kind === "minVariableAffixes"
+      ? countVariableAffixes(item) >= entry.count
+      : RARITY_RANK[item.rarity] >= RARITY_RANK[entry.rarity];
     if (!ok) return false;
   }
   return true;
 }
 
-/** 把主背包中不符過濾條件的裝備一次掃進倉庫。 */
 export function applyFilterSweep(state: GameState): void {
   for (let i = state.equipmentInv.length - 1; i >= 0; i--) {
     if (!passesFilter(state, state.equipmentInv[i])) {

@@ -1,4 +1,4 @@
-import type { GameState, Affix, Item, Slot } from "./types.ts";
+import type { BaseResearchSlot, GameState, Affix, Item } from "./types.ts";
 import { spend } from "./inventory.ts";
 import { DISMANTLER } from "./content.ts";
 import { researchStageGrowthFactor } from "./reincarnation.ts";
@@ -12,15 +12,15 @@ export function baseStageCost(state: GameState, stages: number): number {
   return Math.max(1, Math.round(BASE_STAGE_BASE_COST * researchStageGrowthFactor(state) ** stages));
 }
 
-export function baseBonus(state: GameState, slot: Slot): number {
+export function baseBonus(state: GameState, slot: BaseResearchSlot): number {
   return BASE_STRENGTH_PER_STAGE * (state.baseResearch[slot] ?? 0);
 }
 
-export function baseItemsAvailable(state: GameState, slot: Slot): number {
+export function baseItemsAvailable(state: GameState, slot: BaseResearchSlot): number {
   return state.baseResearchPoints[slot] ?? 0;
 }
 
-function addBaseResearchProgress(state: GameState, slot: Slot, value: number): void {
+function addBaseResearchProgress(state: GameState, slot: BaseResearchSlot, value: number): void {
   state.baseResearchPoints[slot] = (state.baseResearchPoints[slot] ?? 0) + value;
   let stages = state.baseResearch[slot] ?? 0;
   while (state.baseResearchPoints[slot] >= baseStageCost(state, stages)) {
@@ -30,7 +30,7 @@ function addBaseResearchProgress(state: GameState, slot: Slot, value: number): v
   state.baseResearch[slot] = stages;
 }
 
-export function researchBase(state: GameState, slot: Slot): boolean {
+export function researchBase(state: GameState, slot: BaseResearchSlot): boolean {
   addBaseResearchProgress(state, slot, 1);
   return true;
 }
@@ -81,10 +81,9 @@ export function toggleDismantlerActive(state: GameState): void {
 }
 
 function dismantleItem(state: GameState, item: Item, multiplier: number): void {
-  if (item.kind === "equipment") {
-    addBaseResearchProgress(state, item.slot, multiplier);
-  }
+  addBaseResearchProgress(state, item.kind === "core" ? "core" : item.slot, multiplier);
   for (const aff of item.affixes) {
+    if (aff.fixed) continue;
     const v = affixResearchValue(aff);
     if (v > 0) addResearch(state, aff.stat, v * multiplier);
   }

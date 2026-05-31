@@ -1,5 +1,6 @@
 export type Slot = "weapon" | "armor" | "accessory";
 export type ItemSlot = Slot | "core";
+export type BaseResearchSlot = Slot | "core";
 export type ItemRarity = "normal" | "magic" | "rare";
 export type ItemKind = "equipment" | "core";
 export type AffixTag = "physical" | "crit" | "speed" | "life" | "defense" | "craft";
@@ -113,10 +114,20 @@ export interface CoreRecipeDef {
 
 export type FilterStat = AffixStat | "__any__";
 
-export interface FilterEntry {
-  stat: FilterStat;
-  minTier: number;
-}
+export type FilterEntry =
+  | {
+      kind: "affixTier";
+      stat: FilterStat;
+      minTier: number;
+    }
+  | {
+      kind: "minVariableAffixes";
+      count: number;
+    }
+  | {
+      kind: "minRarity";
+      rarity: Exclude<ItemRarity, "normal">;
+    };
 
 export interface Affix {
   stat: AffixStat;
@@ -210,8 +221,8 @@ export interface GameState {
   equipped: Record<Slot, Equipment | null>;
   combat: CombatState;
   research: { points: Record<string, number>; stages: Record<string, number> };
-  baseResearch: Record<Slot, number>;
-  baseResearchPoints: Record<Slot, number>;
+  baseResearch: Record<BaseResearchSlot, number>;
+  baseResearchPoints: Record<BaseResearchSlot, number>;
   dismantler: DismantlerState;
   crafters: Record<Slot, CrafterState>;
   coreCrafter: CrafterState;
