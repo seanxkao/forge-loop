@@ -22,7 +22,7 @@ export function deriveStats(state: GameState): StatBlock {
       const v = aff.value * (1 + strengthBonus(state, aff.stat));
       if (aff.stat === "atk") flat += v;
       else if (aff.stat === "localPhysPct") local += v;
-      else s[aff.stat] += v;
+      else if (aff.stat in s) s[aff.stat as keyof StatBlock] += v;
     }
     s.atk += (base + flat) * (1 + local);
   }
@@ -48,7 +48,9 @@ function applyGlobal(state: GameState, s: StatBlock, eq: Equipment): void {
     s[key] += (eq.base[key] ?? 0) * baseMult;
   }
   for (const aff of eq.affixes) {
-    s[aff.stat] += aff.value * (1 + strengthBonus(state, aff.stat));
+    if (aff.stat in s) {
+      s[aff.stat as keyof StatBlock] += aff.value * (1 + strengthBonus(state, aff.stat));
+    }
   }
 }
 

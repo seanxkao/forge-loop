@@ -13,13 +13,13 @@ function makeState(): GameState {
     version: 1,
     inventory: {},
     machines: {
-      furnace: { count: 1, active: 1, progress: 0, idle: false },
-      tannery: { count: 1, active: 1, progress: 0, idle: false },
-      crystallizer: { count: 1, active: 1, progress: 0, idle: false },
+      furnace: { count: 1, active: 1, progress: 0, productivity: 0, idle: false, cores: [null, null] },
+      tannery: { count: 1, active: 1, progress: 0, productivity: 0, idle: false, cores: [null, null] },
+      crystallizer: { count: 1, active: 1, progress: 0, productivity: 0, idle: false, cores: [null, null] },
     },
     equipmentInv: [],
     warehouseInv: [],
-    filters: { weapon: [], armor: [], accessory: [] },
+    filters: { weapon: [], armor: [], accessory: [], core: [] },
     equipped: { weapon: null, armor: null, accessory: null },
     combat: {
       stageId: "s1",
@@ -33,54 +33,39 @@ function makeState(): GameState {
     research: { points: {}, stages: {} },
     baseResearch: { weapon: 0, armor: 0, accessory: 0 },
     baseResearchPoints: { weapon: 0, armor: 0, accessory: 0 },
-    dismantler: { count: 1, active: 1, progress: 0 },
+    dismantler: { count: 1, active: 1, progress: 0, cores: [null, null] },
     crafters: {
-      weapon: { count: 1, active: 1, progress: 0, queue: 0, idle: false },
-      armor: { count: 1, active: 1, progress: 0, queue: 0, idle: false },
-      accessory: { count: 1, active: 1, progress: 0, queue: 0, idle: false },
+      weapon: { count: 1, active: 1, progress: 0, productivity: 0, queue: 0, idle: false, cores: [null, null] },
+      armor: { count: 1, active: 1, progress: 0, productivity: 0, queue: 0, idle: false, cores: [null, null] },
+      accessory: { count: 1, active: 1, progress: 0, productivity: 0, queue: 0, idle: false, cores: [null, null] },
     },
+    coreCrafter: { count: 1, active: 1, progress: 0, productivity: 0, queue: 0, idle: false, cores: [null, null] },
     reincarnation: {
       cycle: 1,
       buffs: { research: 0, materials: 0, power: 0 },
       victoryPending: false,
       gameCleared: false,
     },
+    progress: {
+      unlockedStageCount: 1,
+      coreUnlocked: false,
+    },
     nextEquipId: 1,
   };
 }
 
-function makeWeapon(
-  uid: number,
-  flatAtk: number,
-  localPhysPct = 0,
-  critChance = 0,
-): Equipment {
+function makeWeapon(uid: number, flatAtk: number, localPhysPct = 0, critChance = 0): Equipment {
   const affixes: Equipment["affixes"] = [];
-  if (flatAtk !== 0) affixes.push({ stat: "atk", value: flatAtk, label: "點傷", tier: 3 });
-  if (localPhysPct !== 0) {
-    affixes.push({
-      stat: "localPhysPct",
-      value: localPhysPct,
-      label: "本地物理",
-      pct: true,
-      tier: 3,
-    });
-  }
-  if (critChance !== 0) {
-    affixes.push({
-      stat: "critChance",
-      value: critChance,
-      label: "暴擊率",
-      pct: true,
-      tier: 3,
-    });
-  }
-
+  if (flatAtk !== 0) affixes.push({ stat: "atk", value: flatAtk, label: "攻擊", tier: 3, tags: ["physical"] });
+  if (localPhysPct !== 0) affixes.push({ stat: "localPhysPct", value: localPhysPct, label: "武器物傷%", pct: true, tier: 3, tags: ["physical"] });
+  if (critChance !== 0) affixes.push({ stat: "critChance", value: critChance, label: "暴擊率", pct: true, tier: 3, tags: ["crit"] });
   return {
     uid,
     recipeId: "weapon",
     name: "測試武器",
     icon: "S",
+    kind: "equipment",
+    rarity: "normal",
     slot: "weapon",
     base: { atk: 10 },
     affixes,
@@ -114,7 +99,6 @@ test("comparison rows include gains and losses against equipped item", () => {
   assert.ok(physicalDamage);
   assert.ok(Math.abs(physicalDamage.value - 21.6) < 1e-9);
   assert.ok(Math.abs((physicalDamage.delta ?? 0) - 7.6) < 1e-9);
-
   assert.ok(critChance);
   assert.equal(critChance.value, 0);
   assert.equal(critChance.delta, -0.05);

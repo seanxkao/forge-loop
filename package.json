@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "test": "node --import tsx --test tests/equipment-view.test.ts tests/game-balance.test.ts tests/reincarnation.test.ts tests/tooltip-position.test.ts",
+    "test": "node --import tsx --test tests/equipment-view.test.ts tests/game-balance.test.ts tests/rarity.test.ts tests/reincarnation.test.ts tests/tooltip-position.test.ts",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "gen:affixes": "node scripts/gen-affixes.mjs"

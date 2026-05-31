@@ -2,6 +2,7 @@
 // 詞綴資料的單一事實來源是 affixTable.csv（可用試算表手調）；本檔只負責解析。
 import type { AffixDef, Slot } from "./types.ts";
 import csvRaw from "./affixTable.csv?raw";
+import { withDerivedAffixMeta } from "./affixMeta.ts";
 
 // 欄位順序須與 affixTable.csv 的表頭一致。
 const COLS = ["slot", "stat", "label", "pct", "tier", "weight", "min", "max"] as const;
@@ -27,12 +28,12 @@ function parse(raw: string): Map<string, AffixDef[]> {
     }
     let def = slotMap.get(row.stat);
     if (!def) {
-      def = {
+      def = withDerivedAffixMeta({
         stat: row.stat as AffixDef["stat"],
         label: row.label,
         tiers: [],
-      };
-      if (row.pct === "1" || row.pct.toLowerCase() === "true") def.pct = true;
+        pct: row.pct === "1" || row.pct.toLowerCase() === "true",
+      });
       slotMap.set(row.stat, def);
     }
     def.tiers.push({

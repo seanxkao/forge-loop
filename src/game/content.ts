@@ -10,6 +10,7 @@ import type {
   Slot,
 } from "./types.ts";
 import { affixPool } from "./affixTable.ts";
+import { CORE_MACHINE, CORE_RECIPE, MATERIAL_DROP_AFFIX } from "./coreContent.ts";
 
 /** 英雄裸值（無裝備，極弱）。 */
 export const HERO_BASE: StatBlock = {
@@ -29,8 +30,6 @@ export const HERO_BASE: StatBlock = {
 export const HERO_BASE_INTERVAL = 1.2;
 
 /** 製裝詞綴數量權重（index 0 = 1 條 … index 3 = 4 條）。待平衡。 */
-export const AFFIX_COUNT_WEIGHTS = [0.5, 0.3, 0.15, 0.05];
-
 export const GRID_WIDTH = 3;
 export const GRID_HEIGHT = 3;
 
@@ -123,9 +122,11 @@ export const RECIPES: Record<string, RecipeDef> = {
     slot: "accessory",
     cost: { crystal: 2 },
     base: { critChance: 0.05 },
-    affixPool: affixPool("accessory"),
+    affixPool: [...affixPool("accessory"), MATERIAL_DROP_AFFIX],
   },
 };
+
+export { CORE_MACHINE, CORE_RECIPE };
 
 // ---- 關卡：20 關，5 區 × 4 關（第 4 關為魔王） ----
 

@@ -3,6 +3,7 @@ import { STAGES } from "./content.ts";
 import { deriveStats, attackInterval } from "./hero.ts";
 import { add } from "./inventory.ts";
 import { materialDropMultiplier } from "./reincarnation.ts";
+import { coerceUnlockedStageId, unlockAfterStageClear } from "./unlocks.ts";
 
 export interface CombatFx {
   onHeroAttack?(dmg: number, crit: boolean): void;
@@ -25,7 +26,7 @@ export function currentEnemyDef(state: GameState): EnemyDef {
 
 export function startStage(state: GameState, stageId: string): void {
   const c = state.combat;
-  c.stageId = stageId;
+  c.stageId = coerceUnlockedStageId(state, stageId);
   c.waveIndex = 0;
   c.enemyIndex = 0;
   c.heroAtkTimer = 0;
@@ -51,9 +52,10 @@ function advance(state: GameState, fx: CombatFx): void {
     c.enemyIndex = 0;
     c.waveIndex += 1;
     if (c.waveIndex >= stage.waves.length) {
+      unlockAfterStageClear(state, c.stageId);
       c.waveIndex = 0;
       c.heroHp = deriveStats(state).hp;
-      if (isFinalEnemy) {
+      if (isFinalEnemy && !state.reincarnation.gameCleared) {
         state.reincarnation.victoryPending = true;
         state.reincarnation.gameCleared = true;
       }

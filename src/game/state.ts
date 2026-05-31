@@ -9,13 +9,13 @@ export function createInitialState(): GameState {
     inventory: {},
     // 起手免費附三種機台各一台
     machines: {
-      furnace: { count: 1, active: 1, progress: 0, idle: false },
-      tannery: { count: 1, active: 1, progress: 0, idle: false },
-      crystallizer: { count: 1, active: 1, progress: 0, idle: false },
+      furnace: { count: 1, active: 1, progress: 0, productivity: 0, idle: false, cores: [null, null] },
+      tannery: { count: 1, active: 1, progress: 0, productivity: 0, idle: false, cores: [null, null] },
+      crystallizer: { count: 1, active: 1, progress: 0, productivity: 0, idle: false, cores: [null, null] },
     },
     equipmentInv: [],
     warehouseInv: [],
-    filters: { weapon: [], armor: [], accessory: [] },
+    filters: { weapon: [], armor: [], accessory: [], core: [] },
     equipped: { weapon: null, armor: null, accessory: null },
     combat: {
       stageId: STAGES[0].id,
@@ -29,18 +29,23 @@ export function createInitialState(): GameState {
     research: { points: {}, stages: {} },
     baseResearch: { weapon: 0, armor: 0, accessory: 0 },
     baseResearchPoints: { weapon: 0, armor: 0, accessory: 0 },
-    dismantler: { count: 1, active: 1, progress: 0 },
+    dismantler: { count: 1, active: 1, progress: 0, cores: [null, null] },
     // 起手免費附三槽製裝機各一台
     crafters: {
-      weapon: { count: 1, active: 1, progress: 0, queue: 0, idle: false },
-      armor: { count: 1, active: 1, progress: 0, queue: 0, idle: false },
-      accessory: { count: 1, active: 1, progress: 0, queue: 0, idle: false },
+      weapon: { count: 1, active: 1, progress: 0, productivity: 0, queue: 0, idle: false, cores: [null, null] },
+      armor: { count: 1, active: 1, progress: 0, productivity: 0, queue: 0, idle: false, cores: [null, null] },
+      accessory: { count: 1, active: 1, progress: 0, productivity: 0, queue: 0, idle: false, cores: [null, null] },
     },
+    coreCrafter: { count: 1, active: 1, progress: 0, productivity: 0, queue: 0, idle: false, cores: [null, null] },
     reincarnation: {
       cycle: 1,
       buffs: { research: 0, materials: 0, power: 0 },
       victoryPending: false,
       gameCleared: false,
+    },
+    progress: {
+      unlockedStageCount: 1,
+      coreUnlocked: false,
     },
     nextEquipId: 1,
   };

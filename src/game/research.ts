@@ -1,8 +1,9 @@
-import type { GameState, Affix, Equipment, Slot } from "./types.ts";
+import type { GameState, Affix, Item, Slot } from "./types.ts";
 import { spend } from "./inventory.ts";
 import { DISMANTLER } from "./content.ts";
 import { researchStageGrowthFactor } from "./reincarnation.ts";
 import { totalMachinePurchaseCost } from "./machineCosts.ts";
+import { machineCoreEffects } from "./machineCores.ts";
 
 const BASE_STAGE_BASE_COST = 5;
 const BASE_STRENGTH_PER_STAGE = 0.2;
@@ -68,14 +69,25 @@ export function dismantleableCount(state: GameState): number {
 
 export function craftDismantler(state: GameState): boolean {
   if (!spend(state, totalMachinePurchaseCost(DISMANTLER.buildCost, state.dismantler.count, 1))) return false;
+  const wasRunning = state.dismantler.active > 0;
   state.dismantler.count += 1;
-  state.dismantler.active += 1;
+  state.dismantler.active = wasRunning ? state.dismantler.count : 0;
   return true;
 }
 
-export function setDismActive(state: GameState, delta: number): void {
+export function toggleDismantlerActive(state: GameState): void {
   const d = state.dismantler;
-  d.active = Math.max(0, Math.min(d.count, d.active + delta));
+  d.active = d.active > 0 ? 0 : d.count;
+}
+
+function dismantleItem(state: GameState, item: Item, multiplier: number): void {
+  if (item.kind === "equipment") {
+    addBaseResearchProgress(state, item.slot, multiplier);
+  }
+  for (const aff of item.affixes) {
+    const v = affixResearchValue(aff);
+    if (v > 0) addResearch(state, aff.stat, v * multiplier);
+  }
 }
 
 export function tickDismantler(state: GameState, dt: number): void {
@@ -88,13 +100,11 @@ export function tickDismantler(state: GameState, dt: number): void {
   d.progress += dt * d.active;
   if (d.progress < DISMANTLE_CYCLE) return;
 
+  const effects = machineCoreEffects(state, { kind: "dismantler", id: DISMANTLER.id });
+  const multiplier = 1 + effects.productivity;
   while (d.progress >= DISMANTLE_CYCLE && state.warehouseInv.length > 0) {
-    const eq = state.warehouseInv.shift() as Equipment;
-    addBaseResearchProgress(state, eq.slot, 1);
-    for (const aff of eq.affixes) {
-      const v = affixResearchValue(aff);
-      if (v > 0) addResearch(state, aff.stat, v);
-    }
+    const item = state.warehouseInv.shift() as Item;
+    dismantleItem(state, item, multiplier);
     d.progress -= DISMANTLE_CYCLE;
   }
 

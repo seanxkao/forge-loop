@@ -1,10 +1,12 @@
-import type { GameState, Equipment } from "./types.ts";
+import type { GameState, Item } from "./types.ts";
 
 /** 裝備是否通過該槽的過濾條件：每列要求的屬性都存在且品質階 ≥ 門檻（AND）。 */
-export function passesFilter(state: GameState, eq: Equipment): boolean {
-  const entries = state.filters[eq.slot] ?? [];
+export function passesFilter(state: GameState, item: Item): boolean {
+  const entries = state.filters[item.slot] ?? [];
   for (const e of entries) {
-    const ok = eq.affixes.some((a) => a.stat === e.stat && a.tier >= e.minTier);
+    const ok = e.stat === "__any__"
+      ? item.affixes.some((a) => a.tier >= e.minTier)
+      : item.affixes.some((a) => a.stat === e.stat && a.tier >= e.minTier);
     if (!ok) return false;
   }
   return true;

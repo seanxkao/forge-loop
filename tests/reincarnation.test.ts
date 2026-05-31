@@ -17,7 +17,7 @@ function makeState(): GameState {
     machines: {},
     equipmentInv: [],
     warehouseInv: [],
-    filters: { weapon: [], armor: [], accessory: [] },
+    filters: { weapon: [], armor: [], accessory: [], core: [] },
     equipped: { weapon: null, armor: null, accessory: null },
     combat: {
       stageId: "s1",
@@ -31,17 +31,22 @@ function makeState(): GameState {
     research: { points: {}, stages: {} },
     baseResearch: { weapon: 0, armor: 0, accessory: 0 },
     baseResearchPoints: { weapon: 0, armor: 0, accessory: 0 },
-    dismantler: { count: 0, active: 0, progress: 0 },
+    dismantler: { count: 0, active: 0, progress: 0, cores: [null, null] },
     crafters: {
-      weapon: { count: 0, active: 0, progress: 0, queue: 0, idle: false },
-      armor: { count: 0, active: 0, progress: 0, queue: 0, idle: false },
-      accessory: { count: 0, active: 0, progress: 0, queue: 0, idle: false },
+      weapon: { count: 0, active: 0, progress: 0, productivity: 0, queue: 0, idle: false, cores: [null, null] },
+      armor: { count: 0, active: 0, progress: 0, productivity: 0, queue: 0, idle: false, cores: [null, null] },
+      accessory: { count: 0, active: 0, progress: 0, productivity: 0, queue: 0, idle: false, cores: [null, null] },
     },
+    coreCrafter: { count: 0, active: 0, progress: 0, productivity: 0, queue: 0, idle: false, cores: [null, null] },
     reincarnation: {
       cycle: 1,
       buffs: { research: 0, materials: 0, power: 0 },
       victoryPending: false,
       gameCleared: false,
+    },
+    progress: {
+      unlockedStageCount: 1,
+      coreUnlocked: false,
     },
     nextEquipId: 1,
   };
@@ -71,8 +76,7 @@ test("reincarnation multipliers stack multiplicatively", () => {
   assert.ok(Math.abs(powerMultiplier(state) - 1.4641) < 1e-12);
 });
 
-test("machine costs jump at 10 and 100 ownership thresholds", () => {
+test("machine costs jump with rounded 2.5x thresholds", () => {
   const total = totalMachinePurchaseCost({ ore: 5 }, 9, 3);
-
-  assert.deepEqual(total, { ore: 55 });
+  assert.deepEqual(total, { ore: 30 });
 });

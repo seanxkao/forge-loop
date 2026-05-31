@@ -1,4 +1,9 @@
 export type Slot = "weapon" | "armor" | "accessory";
+export type ItemSlot = Slot | "core";
+export type ItemRarity = "normal" | "magic" | "rare";
+export type ItemKind = "equipment" | "core";
+export type AffixTag = "physical" | "crit" | "speed" | "life" | "defense" | "craft";
+export type MachineTargetKind = "machine" | "crafter" | "coreCrafter" | "dismantler";
 
 export interface StatBlock {
   hp: number;
@@ -14,6 +19,21 @@ export interface StatBlock {
 }
 
 export type PartialStats = Partial<StatBlock>;
+
+export type AffixStat =
+  | keyof StatBlock
+  | "materialDropPct"
+  | "productivity"
+  | "machineSpeedPct"
+  | "materialRefundPct"
+  | "upgradeTierChance"
+  | "rarityBonus"
+  | "weightPhysical"
+  | "weightCrit"
+  | "weightSpeed"
+  | "weightLife"
+  | "weightDefense"
+  | "weightCraft";
 
 export interface MaterialDef {
   id: string;
@@ -64,9 +84,11 @@ export interface AffixTier {
 }
 
 export interface AffixDef {
-  stat: keyof StatBlock;
+  stat: AffixStat;
   label: string;
   pct?: boolean;
+  tags?: AffixTag[];
+  fixed?: boolean;
   tiers: AffixTier[];
 }
 
@@ -80,42 +102,78 @@ export interface RecipeDef {
   affixPool: AffixDef[];
 }
 
+export interface CoreRecipeDef {
+  id: "core";
+  name: string;
+  icon: string;
+  cost: Record<string, number>;
+  fixedAffix: AffixDef;
+  affixPool: AffixDef[];
+}
+
+export type FilterStat = AffixStat | "__any__";
+
 export interface FilterEntry {
-  stat: keyof StatBlock;
+  stat: FilterStat;
   minTier: number;
 }
 
 export interface Affix {
-  stat: keyof StatBlock;
+  stat: AffixStat;
   value: number;
   label: string;
   pct?: boolean;
   tier: number;
+  tags?: AffixTag[];
+  fixed?: boolean;
 }
 
-export interface Equipment {
+interface ItemBase {
   uid: number;
   recipeId: string;
   name: string;
   icon: string;
-  slot: Slot;
-  base: PartialStats;
+  rarity: ItemRarity;
   affixes: Affix[];
 }
+
+export interface Equipment extends ItemBase {
+  kind: "equipment";
+  slot: Slot;
+  base: PartialStats;
+}
+
+export interface CoreItem extends ItemBase {
+  kind: "core";
+  slot: "core";
+}
+
+export type Item = Equipment | CoreItem;
 
 export interface MachineState {
   count: number;
   active: number;
   progress: number;
+  productivity: number;
   idle: boolean;
+  cores: [CoreItem | null, CoreItem | null];
 }
 
 export interface CrafterState {
   count: number;
   active: number;
   progress: number;
+  productivity: number;
   queue: number;
   idle: boolean;
+  cores: [CoreItem | null, CoreItem | null];
+}
+
+export interface DismantlerState {
+  count: number;
+  active: number;
+  progress: number;
+  cores: [CoreItem | null, CoreItem | null];
 }
 
 export interface CombatState {
@@ -137,20 +195,27 @@ export interface ReincarnationState {
   gameCleared: boolean;
 }
 
+export interface ProgressState {
+  unlockedStageCount: number;
+  coreUnlocked: boolean;
+}
+
 export interface GameState {
   version: number;
   inventory: Record<string, number>;
   machines: Record<string, MachineState>;
-  equipmentInv: Equipment[];
-  warehouseInv: Equipment[];
-  filters: Record<Slot, FilterEntry[]>;
+  equipmentInv: Item[];
+  warehouseInv: Item[];
+  filters: Record<ItemSlot, FilterEntry[]>;
   equipped: Record<Slot, Equipment | null>;
   combat: CombatState;
   research: { points: Record<string, number>; stages: Record<string, number> };
   baseResearch: Record<Slot, number>;
   baseResearchPoints: Record<Slot, number>;
-  dismantler: { count: number; active: number; progress: number };
+  dismantler: DismantlerState;
   crafters: Record<Slot, CrafterState>;
+  coreCrafter: CrafterState;
   reincarnation: ReincarnationState;
+  progress: ProgressState;
   nextEquipId: number;
 }

@@ -1,20 +1,23 @@
 import "./style.css";
-import type { GameState, FilterEntry, Slot } from "./game/types.ts";
+import type { GameState, FilterEntry, ItemSlot } from "./game/types.ts";
 import { MATERIALS } from "./game/content.ts";
 import { load, save, wipe } from "./game/save.ts";
 import { createInitialState } from "./game/state.ts";
 import { GameLoop } from "./game/loop.ts";
 import { tickCombat, startStage, type CombatFx } from "./game/combat.ts";
 import { applyReincarnation } from "./game/reincarnation.ts";
+import { coerceUnlockedStageId } from "./game/unlocks.ts";
 import {
   tickProduction,
   craftMachine,
-  setActive,
+  toggleMachineActive,
 } from "./game/production.ts";
 import {
   tickCrafters,
   craftCrafter,
-  setCrafterActive,
+  craftCoreCrafter,
+  toggleCrafterActive,
+  toggleCoreCrafterActive,
   enqueueCraft,
   clearCraftQueue,
 } from "./game/crafting.ts";
@@ -25,19 +28,23 @@ import {
   toWarehouse,
   fromWarehouse,
 } from "./game/equipment.ts";
+import { socketCore, unsocketCore } from "./game/machineCores.ts";
 import { applyFilterSweep } from "./game/filter.ts";
 import {
   tickDismantler,
   craftDismantler,
-  setDismActive,
+  toggleDismantlerActive,
   researchBase,
 } from "./game/research.ts";
 import { BattleRenderer } from "./render/battle.ts";
 import { UI } from "./ui/ui.ts";
 
 let state: GameState = load();
+const selectedStageId = coerceUnlockedStageId(state, state.combat.stageId);
 // 初始化 / 修復戰鬥狀態（新檔或敵人未生成）
-if (state.combat.enemyHp <= 0 || state.combat.heroHp <= 0) {
+if (selectedStageId !== state.combat.stageId) {
+  startStage(state, selectedStageId);
+} else if (state.combat.enemyHp <= 0 || state.combat.heroHp <= 0) {
   startStage(state, state.combat.stageId);
 }
 
@@ -50,6 +57,7 @@ const fx: CombatFx = {
   onHeroAttack: (d, c) => renderer.heroAttacked(d, c),
   onEnemyAttack: (d, blocked) => renderer.enemyAttacked(d, blocked),
   onDrop: (mat, q) => renderer.drop(`+${q}${MATERIALS[mat]?.icon ?? ""}`),
+  onStageClear: () => ui.refresh(state),
 };
 
 const ui = new UI(root, canvas, {
@@ -63,12 +71,12 @@ const ui = new UI(root, canvas, {
     }
     ui.refresh(state);
   },
-  onSetActive: (id, delta) => {
-    setActive(state, id, delta);
+  onToggleMachineActive: (id) => {
+    toggleMachineActive(state, id);
     ui.refresh(state);
   },
   onCraft: (id, qty) => {
-    enqueueCraft(state, id as Slot, qty);
+    enqueueCraft(state, id as ItemSlot, qty);
     ui.refresh(state);
   },
   onCraftCrafter: (slot, qty) => {
@@ -77,12 +85,12 @@ const ui = new UI(root, canvas, {
     }
     ui.refresh(state);
   },
-  onSetCrafterActive: (slot, delta) => {
-    setCrafterActive(state, slot, delta);
+  onToggleCrafterActive: (slot) => {
+    toggleCrafterActive(state, slot);
     ui.refresh(state);
   },
   onClearCraftQueue: (slot) => {
-    clearCraftQueue(state, slot);
+    clearCraftQueue(state, slot as ItemSlot);
     ui.refresh(state);
   },
   onEquip: (uid) => {
@@ -131,12 +139,30 @@ const ui = new UI(root, canvas, {
     }
     ui.refresh(state);
   },
-  onSetDismActive: (delta) => {
-    setDismActive(state, delta);
+  onToggleDismantlerActive: () => {
+    toggleDismantlerActive(state);
     ui.refresh(state);
   },
   onResearchBase: (slot) => {
     researchBase(state, slot);
+    ui.refresh(state);
+  },
+  onCraftCoreCrafter: (qty) => {
+    for (let i = 0; i < qty; i += 1) {
+      if (!craftCoreCrafter(state)) break;
+    }
+    ui.refresh(state);
+  },
+  onToggleCoreCrafterActive: () => {
+    toggleCoreCrafterActive(state);
+    ui.refresh(state);
+  },
+  onSocketCore: (kind, id, slotIndex, uid, fromWarehouse) => {
+    socketCore(state, { kind, id }, slotIndex, uid, fromWarehouse);
+    ui.refresh(state);
+  },
+  onUnsocketCore: (kind, id, slotIndex) => {
+    unsocketCore(state, { kind, id }, slotIndex);
     ui.refresh(state);
   },
   onVictoryContinue: () => {
