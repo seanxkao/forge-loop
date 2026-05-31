@@ -172,8 +172,9 @@ const E_DEF = [
 const Z_INTERVAL = [1.4, 1.3, 1.25, 1.2, 1.15];
 
 // 魔王數值：直接指定，與一般敵人曲線解耦，方便獨立調整（逐區加碼抵銷生產雪球；待平衡）
-const BOSS_HP = [234, 728, 2080, 5616, 14300];
-const BOSS_ATK = [13, 36, 83, 187, 390];
+const BOSS_HP = [234, 728, 2080, 11232, 24600];
+const BOSS_ATK = [13, 21.6, 83, 220, 180];
+const BOSS_INTERVAL = [1.4, 0.65, 1.25, 1.8, 0.95];
 
 /** 三種素材全掉，量隨關卡編號指數上升（後期數量級暴增）；魔王 ×10。待平衡。 */
 function buildDrops(stageIndex: number, isBoss: boolean): DropDef[] {
@@ -221,7 +222,7 @@ function buildStages(): StageDef[] {
         maxHp: BOSS_HP[z],
         atk: BOSS_ATK[z],
         def: E_DEF[z][3],
-        atkInterval: Z_INTERVAL[z],
+        atkInterval: BOSS_INTERVAL[z],
         drops: buildDrops(i, true),
       };
       // 前 4 波雜兵暖身（各 1 隻）＋ 第 5 波單一魔王
