@@ -7,15 +7,14 @@ export function createInitialState(): GameState {
   return {
     version: SAVE_VERSION,
     inventory: {},
-    // 起手免費附三種機台各一台
-    machines: {
-      furnace: { count: 1, active: 1, progress: 0, productivity: 0, idle: false, cores: [null, null] },
-      tannery: { count: 1, active: 1, progress: 0, productivity: 0, idle: false, cores: [null, null] },
-      crystallizer: { count: 1, active: 1, progress: 0, productivity: 0, idle: false, cores: [null, null] },
-    },
+    // 生產：開局 1 個子分頁、無放置；送 1 台庫存組裝機由玩家放置（首格閃爍引導）。
+    production: { tabs: [{ name: "生產線", rows: [] }] },
+    spareAssemblers: 1,
+    // 研究室開局 0 台，需自行用組裝機生產。
+    lab: { count: 0, active: true, progress: 0, cores: [null, null] },
+    bagFilters: { weapon: [], armor: [], accessory: [], core: [] },
     equipmentInv: [],
     warehouseInv: [],
-    filters: { weapon: [], armor: [], accessory: [], core: [] },
     equipped: { weapon: null, armor: null, accessory: [null, null] },
     combat: {
       stageId: STAGES[0].id,
@@ -31,14 +30,6 @@ export function createInitialState(): GameState {
     research: { points: {}, stages: {} },
     baseResearch: { weapon: 0, armor: 0, accessory: 0, core: 0 },
     baseResearchPoints: { weapon: 0, armor: 0, accessory: 0, core: 0 },
-    dismantler: { count: 1, active: 1, progress: 0, cores: [null, null] },
-    // 起手免費附三槽製裝機各一台
-    crafters: {
-      weapon: { count: 1, active: 1, progress: 0, productivity: 0, queue: 0, idle: false, cores: [null, null] },
-      armor: { count: 1, active: 1, progress: 0, productivity: 0, queue: 0, idle: false, cores: [null, null] },
-      accessory: { count: 1, active: 1, progress: 0, productivity: 0, queue: 0, idle: false, cores: [null, null] },
-    },
-    coreCrafter: { count: 1, active: 1, progress: 0, productivity: 0, queue: 0, idle: false, cores: [null, null] },
     reincarnation: {
       cycle: 1,
       buffs: { research: 0, materials: 0, power: 0 },
@@ -49,8 +40,9 @@ export function createInitialState(): GameState {
       unlockedStageCount: 1,
       coreUnlocked: false,
       autoAdvanceNext: false,
+      placedFirstMachine: false,
       grantedLegendaryCore24: false,
-      grantedLegendaryCore34: false,
+      grantedLegendaryCore44: false,
     },
     nextEquipId: 1,
   };

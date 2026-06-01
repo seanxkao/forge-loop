@@ -1,5 +1,7 @@
 import "./style.css";
-import type { GameState, FilterEntry, ItemSlot } from "./game/types.ts";
+import type { CoreSlots } from "./game/machineCores.ts";
+import type { FilterEntry, GameState, ItemSlot } from "./game/types.ts";
+import { organizeBag } from "./game/filter.ts";
 import { MATERIALS } from "./game/content.ts";
 import { load, save, wipe } from "./game/save.ts";
 import { createInitialState } from "./game/state.ts";
@@ -9,39 +11,28 @@ import { applyReincarnation } from "./game/reincarnation.ts";
 import { coerceUnlockedStageId } from "./game/unlocks.ts";
 import {
   tickProduction,
-  craftMachine,
-  toggleMachineActive,
+  placeMachine,
+  addMachineToRow,
+  removeRow,
+  setRowRecipe,
+  addProductionTab,
+  renameProductionTab,
+  removeProductionTab,
+  removeMachineFromRow,
+  toggleRowPaused,
+  toggleRowAuto,
+  enqueueOrder,
+  clearOrder,
+  adjustRowStep,
 } from "./game/production.ts";
-import {
-  tickCrafters,
-  craftCrafter,
-  craftCoreCrafter,
-  toggleCrafterActive,
-  toggleCoreCrafterActive,
-  enqueueCraft,
-  clearCraftQueue,
-} from "./game/crafting.ts";
-import {
-  equip,
-  unequip,
-  toggleItemLock,
-  toWarehouse,
-  fromWarehouse,
-} from "./game/equipment.ts";
+import { equip, unequip, toggleItemLock, toWarehouse, fromWarehouse } from "./game/equipment.ts";
 import { socketCore, unsocketCore } from "./game/machineCores.ts";
-import { applyFilterSweep } from "./game/filter.ts";
-import {
-  tickDismantler,
-  craftDismantler,
-  toggleDismantlerActive,
-  researchBase,
-} from "./game/research.ts";
+import { tickLab, toggleLabActive, researchBase } from "./game/research.ts";
 import { BattleRenderer } from "./render/battle.ts";
-import { UI } from "./ui/ui.ts";
+import { UI, type CoreTarget } from "./ui/ui.ts";
 
 let state: GameState = load();
 const selectedStageId = coerceUnlockedStageId(state, state.combat.stageId);
-// 初始化 / 修復戰鬥狀態（新檔或敵人未生成）
 if (selectedStageId !== state.combat.stageId) {
   startStage(state, selectedStageId);
 } else if (state.combat.enemyHp <= 0 || state.combat.heroHp <= 0) {
@@ -60,123 +51,90 @@ const fx: CombatFx = {
   onStageClear: () => ui.refresh(state),
 };
 
+function coresOf(s: GameState, target: CoreTarget): CoreSlots | null {
+  if (target.kind === "lab") return s.lab.cores;
+  return s.production.tabs[target.tab]?.rows[target.row]?.cores ?? null;
+}
+
+function buildFilterEntry(stat: string, minTier: number): FilterEntry {
+  if (stat.startsWith("__minAffixes__:")) {
+    return { kind: "variableAffixes", cmp: "gte", count: Number(stat.split(":")[1] ?? "0") };
+  }
+  if (stat.startsWith("__minRarity__:")) {
+    return { kind: "rarity", cmp: "gte", rarity: stat.split(":")[1] as never };
+  }
+  return { kind: "affixTier", stat: stat as Extract<FilterEntry, { kind: "affixTier" }>["stat"], cmp: "gte", tier: minTier };
+}
+
 const ui = new UI(root, canvas, {
-  onSelectStage: (id) => {
-    startStage(state, id);
-    ui.refresh(state);
-  },
-  onToggleAutoAdvanceNext: () => {
-    state.progress.autoAdvanceNext = !state.progress.autoAdvanceNext;
-    ui.refresh(state);
-  },
-  onCraftMachine: (id, qty) => {
+  onSelectStage: (id) => { startStage(state, id); ui.refresh(state); },
+  onToggleAutoAdvanceNext: () => { state.progress.autoAdvanceNext = !state.progress.autoAdvanceNext; ui.refresh(state); },
+  onPlaceMachine: (tab, recipe) => { placeMachine(state, tab, recipe); ui.refresh(state); },
+  onAddMachine: (tab, row, qty) => {
     for (let i = 0; i < qty; i += 1) {
-      if (!craftMachine(state, id)) break;
+      if (!addMachineToRow(state, tab, row)) break;
     }
     ui.refresh(state);
   },
-  onToggleMachineActive: (id) => {
-    toggleMachineActive(state, id);
+  onRemoveMachine: (tab, row, qty) => { removeMachineFromRow(state, tab, row, qty); ui.refresh(state); },
+  onToggleRowPaused: (tab, row) => { toggleRowPaused(state, tab, row); ui.refresh(state); },
+  onToggleRowAuto: (tab, row) => { toggleRowAuto(state, tab, row); ui.refresh(state); },
+  onEnqueueOrder: (tab, row, qty) => { enqueueOrder(state, tab, row, qty); ui.refresh(state); },
+  onClearOrder: (tab, row) => { clearOrder(state, tab, row); ui.refresh(state); },
+  onAdjustRowStep: (tab, row, kind, up) => { adjustRowStep(state, tab, row, kind, up); ui.refresh(state); },
+  onRemoveRow: (tab, row) => { removeRow(state, tab, row); ui.refresh(state); },
+  onSetRowRecipe: (tab, row, recipe) => { setRowRecipe(state, tab, row, recipe); ui.refresh(state); },
+  onAddTab: () => { addProductionTab(state); ui.refresh(state); },
+  onRenameTab: (tab, name) => { renameProductionTab(state, tab, name); ui.refresh(state); },
+  onRemoveTab: (tab) => { removeProductionTab(state, tab); ui.refresh(state); },
+  onToggleLab: () => { toggleLabActive(state); ui.refresh(state); },
+  onEquip: (uid) => { equip(state, uid); ui.refresh(state); },
+  onUnequip: (slot) => { unequip(state, slot); ui.refresh(state); },
+  onMoveAllToWarehouse: () => { for (const eq of [...state.equipmentInv]) toWarehouse(state, eq.uid); ui.refresh(state); },
+  onToggleItemLock: (uid) => { toggleItemLock(state, uid); ui.refresh(state); },
+  onToWarehouse: (uid) => { toWarehouse(state, uid); ui.refresh(state); },
+  onFromWarehouse: (uid) => { fromWarehouse(state, uid); ui.refresh(state); },
+  onRowFilterAdd: (tab, row, stat, minTier) => {
+    const target = state.production.tabs[tab]?.rows[row];
+    if (target) target.filter.push(buildFilterEntry(stat, minTier));
     ui.refresh(state);
   },
-  onCraft: (id, qty) => {
-    enqueueCraft(state, id as ItemSlot, qty);
+  onRowFilterDel: (tab, row, index) => {
+    const target = state.production.tabs[tab]?.rows[row];
+    if (target) target.filter.splice(index, 1);
     ui.refresh(state);
   },
-  onCraftCrafter: (slot, qty) => {
-    for (let i = 0; i < qty; i += 1) {
-      if (!craftCrafter(state, slot)) break;
-    }
+  onRowFilterUpdate: (tab, row, index, entry) => {
+    const target = state.production.tabs[tab]?.rows[row];
+    if (target && target.filter[index]) target.filter[index] = entry;
     ui.refresh(state);
   },
-  onToggleCrafterActive: (slot) => {
-    toggleCrafterActive(state, slot);
+  onBagFilterAdd: (type, stat, minTier) => {
+    state.bagFilters[type as ItemSlot].push(buildFilterEntry(stat, minTier));
     ui.refresh(state);
   },
-  onClearCraftQueue: (slot) => {
-    clearCraftQueue(state, slot as ItemSlot);
+  onBagFilterDel: (type, index) => {
+    state.bagFilters[type as ItemSlot].splice(index, 1);
     ui.refresh(state);
   },
-  onEquip: (uid) => {
-    equip(state, uid);
+  onBagFilterUpdate: (type, index, entry) => {
+    const list = state.bagFilters[type as ItemSlot];
+    if (list && list[index]) list[index] = entry;
     ui.refresh(state);
   },
-  onUnequip: (slot) => {
-    unequip(state, slot);
+  onOrganizeBag: () => { organizeBag(state); ui.refresh(state); },
+  onSocketCore: (target, uid, fromWh) => {
+    const cores = coresOf(state, target);
+    if (cores) socketCore(state, cores, target.slotIndex, uid, fromWh);
     ui.refresh(state);
   },
-  onMoveAllToWarehouse: () => {
-    for (const eq of [...state.equipmentInv]) toWarehouse(state, eq.uid);
+  onUnsocketCore: (target) => {
+    const cores = coresOf(state, target);
+    if (cores) unsocketCore(state, cores, target.slotIndex);
     ui.refresh(state);
   },
-  onToggleItemLock: (uid) => {
-    toggleItemLock(state, uid);
-    ui.refresh(state);
-  },
-  onToWarehouse: (uid) => {
-    toWarehouse(state, uid);
-    ui.refresh(state);
-  },
-  onFromWarehouse: (uid) => {
-    fromWarehouse(state, uid);
-    ui.refresh(state);
-  },
-  onFilterAdd: (slot, stat, minTier) => {
-    let entry: FilterEntry;
-    if (stat.startsWith("__minAffixes__:")) {
-      entry = { kind: "minVariableAffixes", count: Number(stat.split(":")[1] ?? "0") };
-    } else if (stat.startsWith("__minRarity__:")) {
-      entry = { kind: "minRarity", rarity: stat.split(":")[1] as "magic" | "rare" };
-    } else {
-      entry = { kind: "affixTier", stat: stat as Extract<FilterEntry, { kind: "affixTier" }>["stat"], minTier };
-    }
-    state.filters[slot].push(entry);
-    ui.refresh(state);
-  },
-  onFilterDel: (slot, index) => {
-    state.filters[slot].splice(index, 1);
-    ui.refresh(state);
-  },
-  onFilterSweep: () => {
-    applyFilterSweep(state);
-    ui.refresh(state);
-  },
-  onCraftDismantler: (qty) => {
-    for (let i = 0; i < qty; i += 1) {
-      if (!craftDismantler(state)) break;
-    }
-    ui.refresh(state);
-  },
-  onToggleDismantlerActive: () => {
-    toggleDismantlerActive(state);
-    ui.refresh(state);
-  },
-  onResearchBase: (slot) => {
-    researchBase(state, slot);
-    ui.refresh(state);
-  },
-  onCraftCoreCrafter: (qty) => {
-    for (let i = 0; i < qty; i += 1) {
-      if (!craftCoreCrafter(state)) break;
-    }
-    ui.refresh(state);
-  },
-  onToggleCoreCrafterActive: () => {
-    toggleCoreCrafterActive(state);
-    ui.refresh(state);
-  },
-  onSocketCore: (kind, id, slotIndex, uid, fromWarehouse) => {
-    socketCore(state, { kind, id }, slotIndex, uid, fromWarehouse);
-    ui.refresh(state);
-  },
-  onUnsocketCore: (kind, id, slotIndex) => {
-    unsocketCore(state, { kind, id }, slotIndex);
-    ui.refresh(state);
-  },
-  onVictoryContinue: () => {
-    state.reincarnation.victoryPending = false;
-    ui.refresh(state);
-  },
+  onResearchBase: (slot) => { researchBase(state, slot); ui.refresh(state); },
+  onVictoryContinue: () => { state.reincarnation.victoryPending = false; ui.refresh(state); },
   onReincarnate: (buff) => {
     state = applyReincarnation(state, createInitialState(), buff);
     startStage(state, state.combat.stageId);
@@ -201,8 +159,7 @@ const loop = new GameLoop(
     if (state.reincarnation.victoryPending) return;
     tickCombat(state, dt, fx);
     tickProduction(state, dt);
-    tickCrafters(state, dt);
-    tickDismantler(state, dt);
+    tickLab(state, dt);
     if (
       state.reincarnation.victoryPending !== hadVictoryPending ||
       state.reincarnation.gameCleared !== hadGameCleared
@@ -217,7 +174,7 @@ const loop = new GameLoop(
   },
   () => {
     renderer.draw(state);
-    ui.tick(state); // 每幀只原地更新數值，不替換節點
+    ui.tick(state);
   },
 );
 loop.start();

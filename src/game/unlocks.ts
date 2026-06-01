@@ -1,7 +1,9 @@
-import { STAGES } from "./content.ts";
-import type { AffixStat, CoreItem, GameState, Item } from "./types.ts";
+import { STAGES, PROD_RECIPES } from "./content.ts";
+import type { AffixStat, CoreItem, GameState, Item, RecipeId } from "./types.ts";
 
 export const CORE_UNLOCK_STAGE_INDEX = 7;
+/** 通關 1-4（清掉 s4 → 解鎖 s5）後，unlockedStageCount ≥ 5。 */
+export const ZONE1_CLEARED_STAGE_COUNT = 5;
 
 const CORE_STATS = new Set<AffixStat>([
   "productivity",
@@ -26,12 +28,24 @@ function hasCoreItems(list: Item[]): boolean {
 }
 
 function hasSocketedCores(state: GameState): boolean {
-  const machineCores = Object.values(state.machines).some((machine) => machine.cores.some((core) => isCoreItem(core)));
-  const crafterCores = Object.values(state.crafters).some((crafter) => crafter.cores.some((core) => isCoreItem(core)));
-  return machineCores
-    || crafterCores
-    || state.dismantler.cores.some((core) => isCoreItem(core))
-    || state.coreCrafter.cores.some((core) => isCoreItem(core));
+  const inRows = state.production.tabs.some((tab) =>
+    tab.rows.some((row) => row.cores.some((core) => isCoreItem(core))),
+  );
+  return inRows || state.lab.cores.some((core) => isCoreItem(core));
+}
+
+/** 是否已通關第一大關（1-4）。晶化、飾品配方據此解鎖。 */
+export function isZone1Cleared(state: GameState): boolean {
+  return clampUnlockedStageCount(state.progress.unlockedStageCount) >= ZONE1_CLEARED_STAGE_COUNT;
+}
+
+/** 配方是否已解鎖。 */
+export function isRecipeUnlocked(state: GameState, recipe: RecipeId): boolean {
+  const def = PROD_RECIPES[recipe];
+  if (!def) return false;
+  if (def.unlock === "zone1") return isZone1Cleared(state);
+  if (def.unlock === "core") return state.progress.coreUnlocked;
+  return true;
 }
 
 function hasCoreResearch(state: GameState): boolean {

@@ -99,18 +99,14 @@ export function fromWarehouse(state: GameState, uid: number): void {
 }
 
 export function unsocketAllCoresIntoInventory(state: GameState): void {
-  for (const id of Object.keys(state.machines)) {
-    unsocketCore(state, { kind: "machine", id }, 0);
-    unsocketCore(state, { kind: "machine", id }, 1);
+  for (const tab of state.production.tabs) {
+    for (const row of tab.rows) {
+      unsocketCore(state, row.cores, 0);
+      unsocketCore(state, row.cores, 1);
+    }
   }
-  for (const slot of Object.keys(state.crafters) as Array<keyof typeof state.crafters>) {
-    unsocketCore(state, { kind: "crafter", id: slot }, 0);
-    unsocketCore(state, { kind: "crafter", id: slot }, 1);
-  }
-  unsocketCore(state, { kind: "coreCrafter", id: CORE_RECIPE.id }, 0);
-  unsocketCore(state, { kind: "coreCrafter", id: CORE_RECIPE.id }, 1);
-  unsocketCore(state, { kind: "dismantler", id: "dismantler" }, 0);
-  unsocketCore(state, { kind: "dismantler", id: "dismantler" }, 1);
+  unsocketCore(state, state.lab.cores, 0);
+  unsocketCore(state, state.lab.cores, 1);
 }
 
 export function toggleItemLock(state: GameState, uid: number): void {

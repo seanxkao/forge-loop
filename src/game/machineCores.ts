@@ -4,13 +4,9 @@ import type {
   AffixStat,
   AffixTag,
   CoreItem,
-  CrafterState,
-  DismantlerState,
   Equipment,
   GameState,
   Item,
-  MachineState,
-  MachineTargetKind,
 } from "./types.ts";
 import { affixTags, isPctAffix, withDerivedAffixMeta } from "./affixMeta.ts";
 import { affixBonusMultiplier } from "./itemAffixes.ts";
@@ -25,10 +21,7 @@ export interface MachineCoreEffects {
   tagWeights: Record<AffixTag, number>;
 }
 
-export interface MachineTargetRef {
-  kind: MachineTargetKind;
-  id: string;
-}
+export type CoreSlots = [CoreItem | null, CoreItem | null];
 
 export function emptyMachineCoreEffects(): MachineCoreEffects {
   return {
@@ -49,25 +42,13 @@ export function emptyMachineCoreEffects(): MachineCoreEffects {
   };
 }
 
-export function getMachineTargetState(
-  state: GameState,
-  target: MachineTargetRef,
-): MachineState | CrafterState | DismantlerState | null {
-  if (target.kind === "machine") return state.machines[target.id] ?? null;
-  if (target.kind === "crafter") return state.crafters[target.id as keyof typeof state.crafters] ?? null;
-  if (target.kind === "coreCrafter") return state.coreCrafter;
-  return state.dismantler;
-}
-
+/** 由一組核心插槽推導機台效果（核心固定詞吃核心基底研究加成）。 */
 export function machineCoreEffects(
   state: GameState,
-  target: MachineTargetRef,
+  cores: ReadonlyArray<CoreItem | null>,
 ): MachineCoreEffects {
-  const targetState = getMachineTargetState(state, target);
   const effects = emptyMachineCoreEffects();
-  if (!targetState || !("cores" in targetState)) return effects;
-
-  for (const core of targetState.cores) {
+  for (const core of cores) {
     if (!core) continue;
     for (const affix of core.affixes) {
       const value = effectiveAffixValue(state, affix);
@@ -149,37 +130,29 @@ export function rollTierValue(min: number, max: number, pct: boolean, rng: () =>
   return pct ? Math.round(raw * 10000) / 10000 : Math.round(raw);
 }
 
+/** 把一顆核心插進指定插槽組；原本插著的退回主背包。成功回 true。 */
 export function socketCore(
   state: GameState,
-  target: MachineTargetRef,
+  cores: CoreSlots,
   slotIndex: number,
   uid: number,
   fromWarehouse: boolean,
 ): boolean {
-  const targetState = getMachineTargetState(state, target);
-  if (!targetState || !("cores" in targetState)) return false;
   if (slotIndex < 0 || slotIndex > 1) return false;
-
   const source = fromWarehouse ? state.warehouseInv : state.equipmentInv;
   const idx = source.findIndex((item) => item.uid === uid && item.kind === "core");
   if (idx < 0) return false;
-  const current = targetState.cores[slotIndex];
+  const current = cores[slotIndex];
   if (current) state.equipmentInv.push(current);
-  const item = source.splice(idx, 1)[0] as CoreItem;
-  targetState.cores[slotIndex] = item;
+  cores[slotIndex] = source.splice(idx, 1)[0] as CoreItem;
   return true;
 }
 
-export function unsocketCore(
-  state: GameState,
-  target: MachineTargetRef,
-  slotIndex: number,
-): boolean {
-  const targetState = getMachineTargetState(state, target);
-  if (!targetState || !("cores" in targetState)) return false;
-  const current = targetState.cores[slotIndex];
+/** 卸下指定插槽核心，退回主背包。 */
+export function unsocketCore(state: GameState, cores: CoreSlots, slotIndex: number): boolean {
+  const current = cores[slotIndex];
   if (!current) return false;
-  targetState.cores[slotIndex] = null;
+  cores[slotIndex] = null;
   state.equipmentInv.push(current);
   return true;
 }

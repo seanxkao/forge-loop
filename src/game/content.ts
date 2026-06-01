@@ -4,13 +4,13 @@ import type {
   StageDef,
   EnemyDef,
   DropDef,
-  MachineDef,
   RecipeDef,
+  RecipeId,
   StatBlock,
   Slot,
 } from "./types.ts";
 import { affixPool } from "./affixTable.ts";
-import { CORE_MACHINE, CORE_RECIPE, MATERIAL_DROP_AFFIX } from "./coreContent.ts";
+import { CORE_RECIPE, MATERIAL_DROP_AFFIX } from "./coreContent.ts";
 
 /** 英雄裸值（無裝備，極弱）。 */
 export const HERO_BASE: StatBlock = {
@@ -46,56 +46,6 @@ export const MATERIALS: Record<string, MaterialDef> = {
   crystal: { id: "crystal", name: "精晶", kind: "intermediate", icon: "💠" },
 };
 
-// ---- 機台：3 種，各 1 進 1 出（數值待平衡） ----
-
-export const MACHINES: Record<string, MachineDef> = {
-  furnace: {
-    id: "furnace",
-    name: "熔爐",
-    icon: "🔥",
-    buildCost: { ore: 5 },
-    input: { ore: 2 },
-    output: { ingot: 1 },
-    cycleTime: 3,
-  },
-  tannery: {
-    id: "tannery",
-    name: "鞣製台",
-    icon: "🧵",
-    buildCost: { hide: 5 },
-    input: { hide: 2 },
-    output: { leather: 1 },
-    cycleTime: 3,
-  },
-  crystallizer: {
-    id: "crystallizer",
-    name: "晶化器",
-    icon: "⚗️",
-    buildCost: { shard: 5 },
-    input: { shard: 2 },
-    output: { crystal: 1 },
-    cycleTime: 3,
-  },
-};
-
-// ---- 拆解機：研究頁可製造、+/- 配置運轉數；拆解速度 = 基礎 × 運轉台數（待平衡） ----
-
-export const DISMANTLER = {
-  id: "dismantler",
-  name: "拆解機",
-  icon: "🔧",
-  buildCost: { ingot: 8, leather: 8, crystal: 8 },
-};
-
-// ---- 製裝機：每槽一台，比照生產機台（製造增台、配置運轉台數）；逐件消耗該槽配方材料製裝。
-//      速度 = 基礎 × 運轉台數。建造成本與週期秒數待平衡（初版週期 1s、建造 10 中間材料）。 ----
-
-export const CRAFTERS: Record<Slot, { buildCost: Record<string, number>; cycleTime: number }> = {
-  weapon: { buildCost: { ingot: 10 }, cycleTime: 1 },
-  armor: { buildCost: { leather: 10 }, cycleTime: 1 },
-  accessory: { buildCost: { crystal: 10 }, cycleTime: 1 },
-};
-
 // ---- 裝備：3 槽各一固定基底，詞綴池見 affixTable.csv（成本／基底待平衡） ----
 
 export const RECIPES: Record<string, RecipeDef> = {
@@ -128,7 +78,40 @@ export const RECIPES: Record<string, RecipeDef> = {
   },
 };
 
-export { CORE_MACHINE, CORE_RECIPE };
+export { CORE_RECIPE };
+
+// ---- 統一配方註冊表：組裝機可指定的所有配方（提煉／裝備／核心／機台自身） ----
+
+export type RecipeKind = "refine" | "equipment" | "core" | "assembler" | "lab";
+
+export interface ProdRecipeDef {
+  id: RecipeId;
+  name: string;
+  icon: string;
+  kind: RecipeKind;
+  input: Record<string, number>;
+  output?: Record<string, number>; // 僅 refine 用（產素材）
+  cycleTime: number;
+  slot?: Slot; // equipment 用
+  /** 解鎖條件：start＝開局；zone1＝通關 1-4 後；core＝通關 2-4 後。 */
+  unlock: "start" | "zone1" | "core";
+}
+
+/** 組裝機建造成本：直接吃三種原料（開局靠掉落即可加開）。研究室吃中間材料。待平衡。 */
+export const ASSEMBLER_COST: Record<string, number> = { ore: 8, hide: 8, shard: 8 };
+export const LAB_COST: Record<string, number> = { ingot: 8, leather: 8, crystal: 8 };
+
+export const PROD_RECIPES: Record<RecipeId, ProdRecipeDef> = {
+  smelt: { id: "smelt", name: "熔煉", icon: "🔥", kind: "refine", input: { ore: 2 }, output: { ingot: 1 }, cycleTime: 6, unlock: "start" },
+  tan: { id: "tan", name: "鞣製", icon: "🧵", kind: "refine", input: { hide: 2 }, output: { leather: 1 }, cycleTime: 6, unlock: "start" },
+  crystallize: { id: "crystallize", name: "晶化", icon: "⚗️", kind: "refine", input: { shard: 2 }, output: { crystal: 1 }, cycleTime: 6, unlock: "zone1" },
+  weapon: { id: "weapon", name: "武器", icon: RECIPES.weapon.icon, kind: "equipment", slot: "weapon", input: RECIPES.weapon.cost, cycleTime: 4, unlock: "start" },
+  armor: { id: "armor", name: "防具", icon: RECIPES.armor.icon, kind: "equipment", slot: "armor", input: RECIPES.armor.cost, cycleTime: 4, unlock: "start" },
+  accessory: { id: "accessory", name: "飾品", icon: RECIPES.accessory.icon, kind: "equipment", slot: "accessory", input: RECIPES.accessory.cost, cycleTime: 4, unlock: "zone1" },
+  core: { id: "core", name: "核心", icon: CORE_RECIPE.icon, kind: "core", input: CORE_RECIPE.cost, cycleTime: 8, unlock: "core" },
+  assembler: { id: "assembler", name: "組裝機", icon: "🛠️", kind: "assembler", input: ASSEMBLER_COST, cycleTime: 3, unlock: "start" },
+  lab: { id: "lab", name: "研究室", icon: "🔬", kind: "lab", input: LAB_COST, cycleTime: 3, unlock: "start" },
+};
 
 // ---- 關卡：20 關，5 區 × 4 關（第 4 關為魔王） ----
 

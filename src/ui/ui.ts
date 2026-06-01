@@ -1,96 +1,108 @@
-﻿import type { GameState, StatBlock, Equipment, Slot } from "../game/types.ts";
-import { MATERIALS, STAGES, MACHINES, RECIPES, DISMANTLER, CRAFTERS } from "../game/content.ts";
-import { CORE_MACHINE, CORE_RECIPE } from "../game/content.ts";
-import type { Item } from "../game/types.ts";
-import type { ItemSlot, MachineTargetKind } from "../game/types.ts";
-import type { StageDef } from "../game/types.ts";
-import type { ReincarnationBuff } from "../game/types.ts";
+import type {
+  GameState,
+  StatBlock,
+  Equipment,
+  Slot,
+  Item,
+  ItemSlot,
+  RecipeId,
+  ProductionRow,
+  StageDef,
+  ReincarnationBuff,
+  BaseResearchSlot,
+  FilterEntry,
+  FilterCmp,
+  FilterStat,
+  ItemRarity,
+  EquipSlotId,
+} from "../game/types.ts";
+import { MATERIALS, STAGES, RECIPES, CORE_RECIPE, PROD_RECIPES } from "../game/content.ts";
+import type { ProdRecipeDef } from "../game/content.ts";
 import { deriveStats, attackInterval } from "../game/hero.ts";
-import { canAfford } from "../game/inventory.ts";
-import { getEquipmentComparisonRows, getEquipmentSummaryRows } from "../game/equipmentView.ts";
-import { totalMachinePurchaseCost } from "../game/machineCosts.ts";
+import { getEquipmentComparisonRows, getEquipmentSummaryRows, findEquippedInEquipSlot } from "../game/equipmentView.ts";
 import { affixLabel, isPctAffix } from "../game/affixMeta.ts";
-import {
-  materialDropMultiplier,
-  powerMultiplier,
-  researchStageGrowthFactor,
-} from "../game/reincarnation.ts";
+import { materialDropMultiplier, powerMultiplier, researchStageGrowthFactor } from "../game/reincarnation.ts";
 import { rarityClassName } from "../game/rarity.ts";
-import { stageIndexById, unlockedStages } from "../game/unlocks.ts";
+import { stageIndexById, unlockedStages, isRecipeUnlocked } from "../game/unlocks.ts";
 import { clampTooltipPosition } from "./tooltipPosition.ts";
 import { affixBonusMultiplier, countVariableAffixes } from "../game/itemAffixes.ts";
-import type { BaseResearchSlot, FilterEntry, ItemRarity } from "../game/types.ts";
-import type { EquipSlotId } from "../game/types.ts";
-import { findEquippedInEquipSlot } from "../game/equipmentView.ts";
-import { stageCost, DISMANTLE_CYCLE, dismantleableCount, baseStageCost, baseBonus, baseItemsAvailable } from "../game/research.ts";
+import { DISMANTLE_CYCLE, stageCost, dismantleableCount, baseStageCost, baseBonus, baseItemsAvailable } from "../game/research.ts";
 import { estimateFilterAverageCrafts } from "../game/filter.ts";
+
+/** 核心插槽目標：生產行（tab,row）或研究室。 */
+export type CoreTarget =
+  | { kind: "row"; tab: number; row: number; slotIndex: number }
+  | { kind: "lab"; slotIndex: number };
 
 export interface UICallbacks {
   onSelectStage(id: string): void;
   onToggleAutoAdvanceNext(): void;
-  onCraftMachine(id: string, qty: number): void;
-  onToggleMachineActive(id: string): void;
-  onCraft(recipeId: string, qty: number): void;
-  onCraftCrafter(slot: Slot, qty: number): void;
-  onToggleCrafterActive(slot: Slot): void;
-  onClearCraftQueue(slot: ItemSlot): void;
+  onPlaceMachine(tab: number, recipe: RecipeId): void;
+  onAddMachine(tab: number, row: number, qty: number): void;
+  onRemoveMachine(tab: number, row: number, qty: number): void;
+  onToggleRowPaused(tab: number, row: number): void;
+  onToggleRowAuto(tab: number, row: number): void;
+  onEnqueueOrder(tab: number, row: number, qty: number): void;
+  onClearOrder(tab: number, row: number): void;
+  onAdjustRowStep(tab: number, row: number, kind: "machine" | "order", up: boolean): void;
+  onRemoveRow(tab: number, row: number): void;
+  onSetRowRecipe(tab: number, row: number, recipe: RecipeId): void;
+  onAddTab(): void;
+  onRenameTab(tab: number, name: string): void;
+  onRemoveTab(tab: number): void;
+  onToggleLab(): void;
   onEquip(uid: number): void;
   onUnequip(slot: EquipSlotId): void;
   onMoveAllToWarehouse(): void;
   onToggleItemLock(uid: number): void;
   onToWarehouse(uid: number): void;
   onFromWarehouse(uid: number): void;
-  onFilterAdd(slot: ItemSlot, stat: string, minTier: number): void;
-  onFilterDel(slot: ItemSlot, index: number): void;
-  onFilterSweep(): void;
-  onCraftDismantler(qty: number): void;
-  onToggleDismantlerActive(): void;
-  onCraftCoreCrafter(qty: number): void;
-  onToggleCoreCrafterActive(): void;
-  onSocketCore(kind: MachineTargetKind, id: string, slotIndex: number, uid: number, fromWarehouse: boolean): void;
-  onUnsocketCore(kind: MachineTargetKind, id: string, slotIndex: number): void;
+  onRowFilterAdd(tab: number, row: number, stat: string, minTier: number): void;
+  onRowFilterDel(tab: number, row: number, index: number): void;
+  onRowFilterUpdate(tab: number, row: number, index: number, entry: FilterEntry): void;
+  onBagFilterAdd(type: ItemSlot, stat: string, minTier: number): void;
+  onBagFilterDel(type: ItemSlot, index: number): void;
+  onBagFilterUpdate(type: ItemSlot, index: number, entry: FilterEntry): void;
+  onOrganizeBag(): void;
+  onSocketCore(target: CoreTarget, uid: number, fromWarehouse: boolean): void;
+  onUnsocketCore(target: CoreTarget): void;
   onResearchBase(slot: BaseResearchSlot): void;
   onVictoryContinue(): void;
   onReincarnate(buff: ReincarnationBuff): void;
   onReset(): void;
 }
 
-const SLOT_NAME: Record<Slot, string> = {
-  weapon: "武器",
-  armor: "防具",
-  accessory: "飾品",
-};
-
-const ITEM_SLOT_NAME: Record<ItemSlot, string> = {
-  ...SLOT_NAME,
-  core: "核心",
-};
-
-/** ??嚗澈皜?憭葡???賂?頞??芷＊蝷箏? N嚗?蝷綽??踹?憭折? DOM ?瘥???*/
+const SLOT_NAME: Record<Slot, string> = { weapon: "武器", armor: "防具", accessory: "飾品" };
+const ITEM_SLOT_NAME: Record<ItemSlot, string> = { ...SLOT_NAME, core: "核心" };
 const INV_RENDER_CAP = 100;
 
-/** ?惜?湔嚗?
- *  - refresh()嚗蝙?刻?雿??遣?急????Ｘ嚗蒂敹怠???蝭暺?
- *  - tick()嚗?撟?芸??唳?唳??璅??嚗??踵?蝭暺??踹? hover ????click ?箏仃嚗?
- */
 export class UI {
-  private activeTab: string | null = null;
+  private activeTab: string = "prod"; // 右側抽屜永遠顯示一個分頁，預設生產
   private activeBagTab: "main" | "warehouse" = "main";
   private activeBagFilter: ItemSlot | "all" = "all";
   private activeBattleInfoTab: "stats" | "equipped" = "equipped";
+  private activeProdTab = 0;
   private currentState: GameState | null = null;
   private drawerEl!: HTMLElement;
   private tooltipEl!: HTMLElement;
   private filterModalEl!: HTMLElement;
+  private bagFilterModalEl!: HTMLElement;
+  private recipeModalEl!: HTMLElement;
   private victoryModalEl!: HTMLElement;
   private coreModalEl!: HTMLElement;
   private stageModalEl!: HTMLElement;
   private settingsModalEl!: HTMLElement;
+  private tabSettingsModalEl!: HTMLElement;
   private stageModalOpen = false;
   private settingsModalOpen = false;
+  private tabSettingsOpen = false;
+  private tabSettingsIndex: number | null = null;
   private tooltipKey: string | null = null;
-  private filterModalSlot: ItemSlot | null = null;
-  private coreTarget: { kind: MachineTargetKind; id: string; slotIndex: number } | null = null;
+  private filterTarget: { tab: number; row: number } | null = null;
+  private bagFilterModalOpen = false;
+  private bagFilterModalType: ItemSlot | null = null;
+  private recipeTarget: { tab: number; row: number | null } | null = null;
+  private coreTarget: CoreTarget | null = null;
   private panelEls: Record<string, HTMLElement> = {};
   private tabBtnEls: Record<string, HTMLElement> = {};
 
@@ -100,94 +112,65 @@ export class UI {
     battleInfoTabs: HTMLElement;
     hero: HTMLElement;
     equipped: HTMLElement;
-    machines: HTMLElement;
-    crafters: HTMLElement;
-    crafting: HTMLElement;
-    filters: HTMLElement;
+    prodTabs: HTMLElement;
+    prodRows: HTMLElement;
     equipInv: HTMLElement;
     warehouse: HTMLElement;
     bagTabs: HTMLElement;
+    bagFilter: HTMLElement;
     inventory: HTMLElement;
     research: HTMLElement;
     reincarnation: HTMLElement;
   };
 
-  // ?弦?? tick() ?典翰??
-  private dismCountEl!: HTMLElement;
-  private dismCraftBtn!: HTMLElement;
-  private dismBar!: HTMLElement;
-  private dismStatus!: HTMLElement;
-  private researchRows: {
-    stat: string;
-    row: HTMLElement;
-    bonus: HTMLElement;
-    prog: HTMLElement;
-    fill: HTMLElement;
-  }[] = [];
-  private baseRows: {
-    slot: BaseResearchSlot;
-    row: HTMLElement;
-    bonus: HTMLElement;
-    prog: HTMLElement;
-    fill: HTMLElement;
-  }[] = [];
-  private researchDisp: Record<string, number> = {}; // easing ?函?憿舐內??
-  private lastStages: Record<string, number> = {}; // ?菜葫??
-  private flashUntil: Record<string, number> = {}; // ???唳???嚗erformance.now嚗?
+  // 研究分頁 tick 快取
+  private labCountEl: HTMLElement | null = null;
+  private labBar: HTMLElement | null = null;
+  private labStatus: HTMLElement | null = null;
+  private researchRows: { stat: string; row: HTMLElement; bonus: HTMLElement; prog: HTMLElement; fill: HTMLElement }[] = [];
+  private baseRows: { slot: BaseResearchSlot; row: HTMLElement; bonus: HTMLElement; prog: HTMLElement; fill: HTMLElement }[] = [];
+  private researchDisp: Record<string, number> = {};
+  private lastStages: Record<string, number> = {};
+  private flashUntil: Record<string, number> = {};
   private baseResearchDisp: Record<BaseResearchSlot, number> = { weapon: 0, armor: 0, accessory: 0, core: 0 };
   private lastBaseStages: Record<BaseResearchSlot, number> = { weapon: 0, armor: 0, accessory: 0, core: 0 };
   private baseFlashUntil: Record<BaseResearchSlot, number> = { weapon: 0, armor: 0, accessory: 0, core: 0 };
   private lastCycleSeen = 1;
 
-  // tick() ?函?敹怠?蝭暺?
-  private machineCards: {
-    id: string;
-    countEl: HTMLElement;
+  // 生產行 tick 快取（僅當前子分頁）
+  private prodRowCards: {
+    row: number;
     bar: HTMLElement;
-    prodBar: HTMLElement | null;
-    craftBtn: HTMLElement;
+    prodBar: HTMLElement;
+    countEl: HTMLElement;
+    queueEl: HTMLElement | null;
+    addBtn: HTMLElement;
+    removeBtn: HTMLElement;
+    orderBtn: HTMLElement;
+    clearBtn: HTMLElement;
     cardEl: HTMLElement;
   }[] = [];
-  // ???鋆質?璈??
-  private crafterMachineCards: {
-    slot: ItemSlot;
-    countEl: HTMLElement;
-    bar: HTMLElement;
-    prodBar: HTMLElement | null;
-    craftBtn: HTMLElement;
-    cardEl: HTMLElement;
-  }[] = [];
-  // ????鋆質?閮??
-  private orderRows: {
-    slot: ItemSlot;
-    queueEl: HTMLElement;
-    enqueueBtns: HTMLElement[];
-  }[] = [];
-  private machineControlRows: { id: string; buyBtns: HTMLElement[] }[] = [];
-  private crafterControlRows: { slot: ItemSlot; buyBtns: HTMLElement[] }[] = [];
-  private machineBuildQty: Record<string, number> = {};
-  private crafterBuildQty: Record<ItemSlot, number> = { weapon: 1, armor: 1, accessory: 1, core: 1 };
-  private craftOrderQty: Record<ItemSlot, number> = { weapon: 1, armor: 1, accessory: 1, core: 1 };
-  private dismantlerBuildQty = 1;
+  private prodPlaceBtns: HTMLElement[] = []; // 空行「放置機器」鈕，無庫存時變暗
   private heroVals: Record<string, HTMLElement> = {};
   private matVals: Record<string, HTMLElement> = {};
   private matEls: Record<string, HTMLElement> = {};
-  private lastWareLen = -1; // ?菜葫?澈鋡急?閫?瘨?霈?
-  private lastEquipLen = -1; // ?菜葫銝餉??◤鋆質?璈?箇?霈?
-  private lastTickTab: string | null = null; // ?菜葫????嚗??唳?鋆葡?府??皜
+  private spareMatEl: HTMLElement | null = null; // 底部素材列的組裝機庫存
+  private spareMatWrap: HTMLElement | null = null;
+  private labMatEl: HTMLElement | null = null; // 底部素材列的研究室台數
+  private labMatWrap: HTMLElement | null = null;
+  private lastWareLen = -1;
+  private lastEquipLen = -1;
+  private lastTickTab: string | null = null;
+  private lastResearchSig = -1; // 研究／基底研究階數總和，變動時即時重繪裝備顯示
 
-  constructor(
-    private root: HTMLElement,
-    private canvas: HTMLCanvasElement,
-    private cb: UICallbacks,
-  ) {
+  constructor(private root: HTMLElement, private canvas: HTMLCanvasElement, private cb: UICallbacks) {
     this.build();
   }
 
   private build(): void {
     this.root.innerHTML = `
       <div class="topbar">
-        <h1>⚒️ Forge Loop <span class="sub">工廠迴圈 — 雛型</span></h1>
+        <h1>⚒️ Forge Loop <span class="app-version">v0.0.1</span></h1>
         <div class="tabrail">
           <button class="tab-btn" data-act="tab" data-arg="prod">🏭 生產</button>
           <button class="tab-btn" data-act="tab" data-arg="bag">🎒 背包</button>
@@ -209,25 +192,20 @@ export class UI {
         <aside class="drawer" data-drawer>
           <section class="panel-section" data-panel="prod">
             <h2>生產</h2>
-            <p class="hint">「增加機台」會花素材擴充台數；「＋／－」配置運轉台數；主按鈕右側可切換 1、10、100 批次。</p>
-            <div class="machines" data-zone="machines"></div>
-            <h2>製裝機</h2>
-            <p class="hint">消耗中間材料產出裝備；基底效果改用提示顯示，過濾器以彈出視窗編輯。</p>
-            <div class="machines" data-zone="crafters"></div>
+            <p class="hint">點空行放置組裝機並選配方；機台連續吃料產出。組裝機庫存見下方素材列（用「組裝機」配方可生產更多）。</p>
+            <div class="prod-subtabs" data-zone="prodTabs"></div>
+            <div class="prod-rows" data-zone="prodRows"></div>
           </section>
           <section class="panel-section" data-panel="bag">
             <div class="bag-subtabs" data-zone="bagTabs"></div>
-            <div class="crafting" data-zone="crafting" hidden></div>
-            <div class="filters" data-zone="filters" hidden></div>
-            <h2 data-bag-equip-title>裝備庫存</h2>
-            <p class="hint" data-bag-equip-hint>右鍵裝備可一鍵在主背包與倉庫間互轉。</p>
+            <div class="bag-filter-edit" data-zone="bagFilter"></div>
             <div class="equip-inv" data-zone="equipInv"></div>
             <h2 data-bag-warehouse-title>倉庫</h2>
             <div class="warehouse" data-zone="warehouse"></div>
           </section>
           <section class="panel-section" data-panel="research">
             <h2>研究</h2>
-            <p class="hint">啟動拆解器會自動銷毀倉庫裝備；每件裝備都會推進對應類型的基底研究與固定詞綴，而 T3 以上的變動詞綴會另外轉成詞綴研究值。詞綴研究每階永久 +10%，基底研究每階永久 +20%。</p>
+            <p class="hint">研究室運轉時會自動銷毀倉庫裝備：每件推進對應類型的基底研究與固定詞綴，T3 以上的變動詞綴另外轉成詞綴研究值。詞綴研究每階永久 +10%，基底研究每階永久 +20%。研究室需用「研究室」配方生產。</p>
             <div class="research" data-zone="research"></div>
           </section>
           <section class="panel-section" data-panel="reincarnation">
@@ -245,118 +223,89 @@ export class UI {
       </div>
     `;
     this.root.querySelector(".canvas-wrap")!.appendChild(this.canvas);
-    this.tooltipEl = document.createElement("div");
-    this.tooltipEl.className = "equip-tooltip";
-    this.tooltipEl.hidden = true;
-    document.body.appendChild(this.tooltipEl);
-    this.filterModalEl = document.createElement("div");
-    this.filterModalEl.className = "modal-backdrop";
-    this.filterModalEl.hidden = true;
-    document.body.appendChild(this.filterModalEl);
-    this.filterModalEl.addEventListener("click", (e) => {
-      if (e.target === this.filterModalEl) {
-        this.filterModalSlot = null;
-        this.renderFilterModal(this.currentState);
-        return;
-      }
-      this.onClick(e as MouseEvent);
-    });
-    this.coreModalEl = document.createElement("div");
-    this.coreModalEl.className = "modal-backdrop";
-    this.coreModalEl.hidden = true;
-    document.body.appendChild(this.coreModalEl);
-    this.coreModalEl.addEventListener("click", (e) => {
-      if (e.target === this.coreModalEl) {
-        this.coreTarget = null;
-        this.renderCoreModal(this.currentState);
-        return;
-      }
-      this.onClick(e as MouseEvent);
-    });
-    this.victoryModalEl = document.createElement("div");
-    this.victoryModalEl.className = "modal-backdrop";
-    this.victoryModalEl.hidden = true;
-    document.body.appendChild(this.victoryModalEl);
-    this.victoryModalEl.addEventListener("click", (e) => {
-      if (e.target === this.victoryModalEl) return;
-      this.onClick(e as MouseEvent);
-    });
-    this.stageModalEl = document.createElement("div");
-    this.stageModalEl.className = "modal-backdrop";
-    this.stageModalEl.hidden = true;
-    document.body.appendChild(this.stageModalEl);
-    this.stageModalEl.addEventListener("click", (e) => {
-      if (e.target === this.stageModalEl) {
-        this.stageModalOpen = false;
-        this.renderStageModal(this.currentState);
-        return;
-      }
-      this.onClick(e as MouseEvent);
-    });
-    this.settingsModalEl = document.createElement("div");
-    this.settingsModalEl.className = "modal-backdrop";
-    this.settingsModalEl.hidden = true;
-    document.body.appendChild(this.settingsModalEl);
-    this.settingsModalEl.addEventListener("click", (e) => {
-      if (e.target === this.settingsModalEl) {
-        this.settingsModalOpen = false;
-        this.renderSettingsModal();
-        return;
-      }
-      this.onClick(e as MouseEvent);
-    });
-    const z = (n: string) =>
-      this.root.querySelector(`[data-zone="${n}"]`) as HTMLElement;
+    this.tooltipEl = this.makeFloating("equip-tooltip", false);
+    this.filterModalEl = this.makeModal(() => { this.filterTarget = null; this.renderFilterModal(this.currentState); });
+    this.bagFilterModalEl = this.makeModal(() => { this.bagFilterModalOpen = false; this.renderBagFilterModal(this.currentState); });
+    this.recipeModalEl = this.makeModal(() => { this.recipeTarget = null; this.renderRecipeModal(this.currentState); });
+    this.coreModalEl = this.makeModal(() => { this.coreTarget = null; this.renderCoreModal(this.currentState); });
+    this.victoryModalEl = this.makeModal(null);
+    this.stageModalEl = this.makeModal(() => { this.stageModalOpen = false; this.renderStageModal(this.currentState); });
+    this.settingsModalEl = this.makeModal(() => { this.settingsModalOpen = false; this.renderSettingsModal(); });
+    this.tabSettingsModalEl = this.makeModal(() => { this.tabSettingsOpen = false; this.renderTabSettingsModal(this.currentState); });
+
+    const z = (n: string) => this.root.querySelector(`[data-zone="${n}"]`) as HTMLElement;
     this.els = {
       battleActions: z("battleActions"),
       battleOptions: z("battleOptions"),
       battleInfoTabs: z("battleInfoTabs"),
       hero: z("hero"),
       equipped: z("equipped"),
-      machines: z("machines"),
-      crafters: z("crafters"),
-      crafting: z("crafting"),
-      filters: z("filters"),
+      prodTabs: z("prodTabs"),
+      prodRows: z("prodRows"),
       equipInv: z("equipInv"),
       warehouse: z("warehouse"),
       bagTabs: z("bagTabs"),
+      bagFilter: z("bagFilter"),
       inventory: z("inventory"),
       research: z("research"),
       reincarnation: z("reincarnation"),
     };
-    // ?賢??????
     this.drawerEl = this.root.querySelector("[data-drawer]") as HTMLElement;
     this.panelEls = {};
-    this.root
-      .querySelectorAll<HTMLElement>("[data-panel]")
-      .forEach((el) => (this.panelEls[el.dataset.panel!] = el));
+    this.root.querySelectorAll<HTMLElement>("[data-panel]").forEach((el) => (this.panelEls[el.dataset.panel!] = el));
     this.tabBtnEls = {};
-    this.root
-      .querySelectorAll<HTMLElement>(".tab-btn")
-      .forEach((el) => (this.tabBtnEls[el.dataset.arg!] = el));
-    // 蝯????偶銝?撱箇??Ｘ?芸遣銝甈?
+    this.root.querySelectorAll<HTMLElement>(".tab-btn").forEach((el) => (this.tabBtnEls[el.dataset.arg!] = el));
     this.buildHero();
     this.buildInventory();
     this.root.addEventListener("click", (e) => this.onClick(e));
     this.root.addEventListener("contextmenu", (e) => this.onContextMenu(e));
     this.root.addEventListener("mousemove", (e) => this.onHoverMove(e));
     this.root.addEventListener("mouseleave", () => this.hideTooltip());
+    this.root.addEventListener("change", (e) => this.onFilterRuleChange(e));
+    this.filterModalEl.addEventListener("change", (e) => this.onFilterRuleChange(e));
+    this.bagFilterModalEl.addEventListener("change", (e) => this.onFilterRuleChange(e));
+    this.setTab(this.activeTab); // 開局即顯示預設分頁（生產）
   }
 
-  /** ???游??撅????????嗉絲??*/
+  private makeFloating(className: string, _modal: boolean): HTMLElement {
+    const el = document.createElement("div");
+    el.className = className;
+    el.hidden = true;
+    document.body.appendChild(el);
+    return el;
+  }
+
+  private makeModal(onBackdrop: (() => void) | null): HTMLElement {
+    const el = document.createElement("div");
+    el.className = "modal-backdrop";
+    el.hidden = true;
+    document.body.appendChild(el);
+    el.addEventListener("click", (e) => {
+      if (e.target === el) {
+        if (onBackdrop) onBackdrop();
+        return;
+      }
+      this.onClick(e as MouseEvent);
+    });
+    return el;
+  }
+
   private setTab(tab: string): void {
-    this.activeTab = this.activeTab === tab ? null : tab;
-    this.drawerEl.classList.toggle("open", this.activeTab !== null);
-    for (const k in this.panelEls) {
-      this.panelEls[k].classList.toggle("active", k === this.activeTab);
-    }
-    for (const k in this.tabBtnEls) {
-      this.tabBtnEls[k].classList.toggle("sel", k === this.activeTab);
-    }
+    this.activeTab = tab; // 永遠停在某個分頁，不再切回空白
+    this.drawerEl.classList.add("open");
+    for (const k in this.panelEls) this.panelEls[k].classList.toggle("active", k === this.activeTab);
+    for (const k in this.tabBtnEls) this.tabBtnEls[k].classList.toggle("sel", k === this.activeTab);
   }
 
-  /** ?喲鋆?嚗??萄銝餉????澈??頧?*/
   private onContextMenu(e: MouseEvent): void {
+    const tabBtn = (e.target as HTMLElement).closest('[data-act="prodTab"]') as HTMLElement | null;
+    if (tabBtn) {
+      e.preventDefault();
+      this.tabSettingsIndex = Number(tabBtn.dataset.arg);
+      this.tabSettingsOpen = true;
+      this.renderTabSettingsModal(this.currentState);
+      return;
+    }
     const t = (e.target as HTMLElement).closest("[data-uid]") as HTMLElement | null;
     if (!t) return;
     e.preventDefault();
@@ -367,15 +316,9 @@ export class UI {
 
   private onHoverMove(e: MouseEvent): void {
     const target = (e.target as HTMLElement).closest("[data-eqtip]") as HTMLElement | null;
-    if (!target || !this.currentState) {
-      this.hideTooltip();
-      return;
-    }
+    if (!target || !this.currentState) { this.hideTooltip(); return; }
     const eq = this.resolveTooltipEquipment(target, this.currentState);
-    if (!eq) {
-      this.hideTooltip();
-      return;
-    }
+    if (!eq) { this.hideTooltip(); return; }
     const key = target.dataset.eqtip ?? "";
     if (key !== this.tooltipKey) {
       this.tooltipKey = key;
@@ -386,18 +329,12 @@ export class UI {
 
   private resolveTooltipEquipment(target: HTMLElement, state: GameState): Item | null {
     const coreUid = Number(target.dataset.coreUid);
-    if (Number.isFinite(coreUid)) {
-      return findItemByUid(state, coreUid);
-    }
-
+    if (Number.isFinite(coreUid) && target.dataset.coreUid !== undefined) return findItemByUid(state, coreUid);
     const slot = target.dataset.eqslot as EquipSlotId | undefined;
     if (slot) return findEquippedInEquipSlot(state, slot);
-
     const uid = Number(target.dataset.uid);
     if (!Number.isFinite(uid)) return null;
-    if (target.dataset.bag === "ware") {
-      return state.warehouseInv.find((eq) => eq.uid === uid) ?? null;
-    }
+    if (target.dataset.bag === "ware") return state.warehouseInv.find((eq) => eq.uid === uid) ?? null;
     return state.equipmentInv.find((eq) => eq.uid === uid) ?? null;
   }
 
@@ -411,12 +348,8 @@ export class UI {
     const rows = getEquipmentComparisonRows(state, eq, compareTarget);
     this.tooltipEl.innerHTML = `
       <div class="equip-tooltip__title">${eq.icon} ${eq.name}</div>
-      <div class="equip-tooltip__subtitle">${
-        compareTarget ? `對比目前裝備：${compareTarget.icon} ${compareTarget.name}` : "目前裝備"
-      }</div>
-      <div class="equip-tooltip__rows">
-        ${rows.map((row) => renderTooltipRow(row)).join("")}
-      </div>
+      <div class="equip-tooltip__subtitle">${compareTarget ? `對比目前裝備：${compareTarget.icon} ${compareTarget.name}` : "目前裝備"}</div>
+      <div class="equip-tooltip__rows">${rows.map((row) => renderTooltipRow(row)).join("")}</div>
       <div class="equip-tooltip__detail">${describeEquip(eq, state)}</div>
     `;
     this.tooltipEl.hidden = false;
@@ -424,11 +357,7 @@ export class UI {
 
   private positionTooltip(x: number, y: number): void {
     const { width, height } = this.tooltipEl.getBoundingClientRect();
-    const pos = clampTooltipPosition(
-      { x, y },
-      { width, height },
-      { width: window.innerWidth, height: window.innerHeight },
-    );
+    const pos = clampTooltipPosition({ x, y }, { width, height }, { width: window.innerWidth, height: window.innerHeight });
     this.tooltipEl.style.left = `${pos.left}px`;
     this.tooltipEl.style.top = `${pos.top}px`;
   }
@@ -445,233 +374,222 @@ export class UI {
     const arg = t.dataset.arg ?? "";
     switch (act) {
       case "reset":
-        if (confirm("確定要重置存檔嗎？所有進度（裝備、材料、研究、關卡）將永久清除且無法復原。")) {
+        if (confirm("確定要重置存檔嗎？所有進度（裝備、材料、研究、關卡、生產線）將永久清除且無法復原。")) {
           this.settingsModalOpen = false;
           this.renderSettingsModal();
           this.cb.onReset();
         }
         break;
-      case "openSettings":
-        this.settingsModalOpen = true;
-        this.renderSettingsModal();
-        break;
-      case "closeSettings":
-        this.settingsModalOpen = false;
-        this.renderSettingsModal();
-        break;
-      case "tab":
-        this.setTab(arg);
-        break;
+      case "openSettings": this.settingsModalOpen = true; this.renderSettingsModal(); break;
+      case "closeSettings": this.settingsModalOpen = false; this.renderSettingsModal(); break;
+      case "tab": this.setTab(arg); break;
       case "stage":
         this.stageModalOpen = false;
         this.renderStageModal(this.currentState);
         this.cb.onSelectStage(arg);
         break;
-      case "openStageMap":
-        this.stageModalOpen = true;
-        this.renderStageModal(this.currentState);
+      case "openStageMap": this.stageModalOpen = true; this.renderStageModal(this.currentState); break;
+      case "closeStageMap": this.stageModalOpen = false; this.renderStageModal(this.currentState); break;
+      case "toggleAutoNext": this.cb.onToggleAutoAdvanceNext(); break;
+      // ---- 生產：分頁 ----
+      case "prodTab":
+        this.activeProdTab = Number(arg);
+        if (this.currentState) this.renderProduction(this.currentState);
         break;
-      case "closeStageMap":
-        this.stageModalOpen = false;
-        this.renderStageModal(this.currentState);
+      case "addProdTab": this.cb.onAddTab(); break;
+      case "closeTabSettings":
+        this.tabSettingsOpen = false;
+        this.renderTabSettingsModal(this.currentState);
         break;
-      case "toggleAutoNext":
-        this.cb.onToggleAutoAdvanceNext();
+      case "confirmRenameTab": {
+        if (this.tabSettingsIndex !== null) {
+          const input = this.tabSettingsModalEl.querySelector<HTMLInputElement>("[data-tab-name]");
+          this.cb.onRenameTab(this.tabSettingsIndex, input?.value ?? "");
+        }
+        this.tabSettingsOpen = false;
+        this.renderTabSettingsModal(this.currentState);
         break;
-      case "craftMachine":
-        this.cb.onCraftMachine(arg, Number(t.dataset.qty ?? "1"));
+      }
+      case "confirmDeleteTab":
+        if (this.tabSettingsIndex !== null) this.cb.onRemoveTab(this.tabSettingsIndex);
+        this.tabSettingsOpen = false;
+        this.renderTabSettingsModal(this.currentState);
         break;
-      case "toggleMachine":
-        this.cb.onToggleMachineActive(arg);
+      // ---- 生產：行 ----
+      case "openRecipe":
+        this.recipeTarget = { tab: Number(t.dataset.tab), row: t.dataset.row !== undefined ? Number(t.dataset.row) : null };
+        this.renderRecipeModal(this.currentState);
         break;
-      case "craft":
-        this.cb.onCraft(arg, Number(t.dataset.qty ?? "1"));
+      case "closeRecipe": this.recipeTarget = null; this.renderRecipeModal(this.currentState); break;
+      case "pickRecipe": {
+        const recipe = arg as RecipeId;
+        const target = this.recipeTarget;
+        this.recipeTarget = null;
+        this.renderRecipeModal(this.currentState);
+        if (target) {
+          if (target.row === null) this.cb.onPlaceMachine(target.tab, recipe);
+          else this.cb.onSetRowRecipe(target.tab, target.row, recipe);
+        }
         break;
-      case "toggleCrafter":
-        this.cb.onToggleCrafterActive(arg as Slot);
+      }
+      case "addMachine": {
+        const r = this.prodRow(Number(t.dataset.tab), Number(t.dataset.row));
+        this.cb.onAddMachine(Number(t.dataset.tab), Number(t.dataset.row), r?.machineStep ?? 1);
         break;
-      case "craftCrafter":
-        this.cb.onCraftCrafter(arg as Slot, Number(t.dataset.qty ?? "1"));
+      }
+      case "removeMachine": {
+        const r = this.prodRow(Number(t.dataset.tab), Number(t.dataset.row));
+        this.cb.onRemoveMachine(Number(t.dataset.tab), Number(t.dataset.row), r?.machineStep ?? 1);
         break;
-      case "clearQueue":
-        this.cb.onClearCraftQueue(arg as Slot);
+      }
+      case "rowStepMul": this.cb.onAdjustRowStep(Number(t.dataset.tab), Number(t.dataset.row), t.dataset.kind === "order" ? "order" : "machine", true); break;
+      case "rowStepDiv": this.cb.onAdjustRowStep(Number(t.dataset.tab), Number(t.dataset.row), t.dataset.kind === "order" ? "order" : "machine", false); break;
+      case "toggleAuto": this.cb.onToggleRowAuto(Number(t.dataset.tab), Number(t.dataset.row)); break;
+      case "enqueueOrder": {
+        const r = this.prodRow(Number(t.dataset.tab), Number(t.dataset.row));
+        this.cb.onEnqueueOrder(Number(t.dataset.tab), Number(t.dataset.row), r?.orderStep ?? 1);
         break;
-      case "equip":
-        this.cb.onEquip(Number(arg));
-        break;
-      case "unequip":
-        this.cb.onUnequip(arg as EquipSlotId);
-        break;
-      case "moveAllToWarehouse":
-        this.cb.onMoveAllToWarehouse();
-        break;
-      case "toggleLock":
-        this.cb.onToggleItemLock(Number(arg));
-        break;
-      case "toWare":
-        this.cb.onToWarehouse(Number(arg));
-        break;
-      case "fromWare":
-        this.cb.onFromWarehouse(Number(arg));
-        break;
+      }
+      case "clearOrder": this.cb.onClearOrder(Number(t.dataset.tab), Number(t.dataset.row)); break;
+      case "removeRow": this.cb.onRemoveRow(Number(t.dataset.tab), Number(t.dataset.row)); break;
+      // ---- 背包 ----
+      case "equip": this.cb.onEquip(Number(arg)); break;
+      case "unequip": this.cb.onUnequip(arg as EquipSlotId); break;
+      case "moveAllToWarehouse": this.cb.onMoveAllToWarehouse(); break;
+      case "toggleLock": this.cb.onToggleItemLock(Number(arg)); break;
+      case "toWare": this.cb.onToWarehouse(Number(arg)); break;
+      case "fromWare": this.cb.onFromWarehouse(Number(arg)); break;
       case "bagTab":
         this.activeBagTab = arg === "warehouse" ? "warehouse" : "main";
-        if (this.currentState) {
-          this.renderBagTabs();
-          this.renderEquipInv(this.currentState);
-          this.renderWarehouse(this.currentState);
-        }
+        if (this.currentState) { this.renderBagTabs(); this.renderBagFilter(this.currentState); this.renderEquipInv(this.currentState); this.renderWarehouse(this.currentState); }
         break;
       case "bagFilter":
-        this.activeBagFilter = arg === "all" ? "all" : arg as ItemSlot;
-        if (this.currentState) {
-          this.renderBagTabs();
-          this.renderEquipInv(this.currentState);
-          this.renderWarehouse(this.currentState);
-        }
+        this.activeBagFilter = arg === "all" ? "all" : (arg as ItemSlot);
+        if (this.currentState) { this.renderBagTabs(); this.renderBagFilter(this.currentState); this.renderEquipInv(this.currentState); this.renderWarehouse(this.currentState); }
         break;
       case "battleInfoTab":
         this.activeBattleInfoTab = arg === "equipped" ? "equipped" : "stats";
-        if (this.currentState) {
-          this.renderBattleInfoTabs();
-          this.renderHeroPanel();
-          this.renderEquipped(this.currentState);
-        }
+        if (this.currentState) { this.renderBattleInfoTabs(); this.renderHeroPanel(); this.renderEquipped(this.currentState); }
         break;
-      case "selectMachineQty":
-        this.machineBuildQty[arg] = Number(t.dataset.qty ?? "1");
-        if (this.currentState) this.renderMachines(this.currentState);
-        break;
-      case "selectCrafterBuildQty":
-        this.crafterBuildQty[arg as Slot] = Number(t.dataset.qty ?? "1");
-        if (this.currentState) this.renderCrafterMachines(this.currentState);
-        break;
-      case "selectCraftQty":
-        this.craftOrderQty[arg as Slot] = Number(t.dataset.qty ?? "1");
-        if (this.currentState) this.renderCrafterMachines(this.currentState);
-        break;
-      case "selectDismQty":
-        this.dismantlerBuildQty = Number(t.dataset.qty ?? "1");
-        if (this.currentState) this.renderResearch();
-        if (this.currentState) this.tick(this.currentState);
-        break;
+      // ---- 過濾器（每行） ----
       case "openFilter":
-        this.filterModalSlot = arg as ItemSlot;
-        if (this.currentState) this.renderFilterModal(this.currentState);
-        break;
-      case "closeFilter":
-        this.filterModalSlot = null;
+        this.filterTarget = { tab: Number(t.dataset.tab), row: Number(t.dataset.row) };
         this.renderFilterModal(this.currentState);
         break;
+      case "closeFilter": this.filterTarget = null; this.renderFilterModal(this.currentState); break;
       case "filterAdd": {
-        const stat = (
-          this.filterModalEl.querySelector(
-            `[data-fstat="${arg}"]`,
-          ) as HTMLSelectElement
-        ).value;
-        const tier = Number(
-          (
-            this.filterModalEl.querySelector(
-              `[data-ftier="${arg}"]`,
-            ) as HTMLSelectElement
-          ).value,
-        );
-        this.cb.onFilterAdd(arg as ItemSlot, stat, tier);
+        const editor = t.closest(".fs-editor") as HTMLElement | null;
+        if (!editor) break;
+        const stat = (editor.querySelector("[data-fadd-stat]") as HTMLSelectElement).value;
+        const tier = Number((editor.querySelector("[data-fadd-tier]") as HTMLSelectElement).value);
+        this.dispatchFilterAdd(editor, stat, tier);
         break;
       }
       case "filterAddQuick": {
-        const value = t.dataset.value ?? "";
-        this.cb.onFilterAdd(arg as ItemSlot, value, 0);
+        const editor = t.closest(".fs-editor") as HTMLElement | null;
+        if (editor) this.dispatchFilterAdd(editor, t.dataset.value ?? "", 0);
         break;
       }
       case "filterDel": {
-        const [slot, idx] = arg.split(":");
-        this.cb.onFilterDel(slot as ItemSlot, Number(idx));
+        const editor = t.closest(".fs-editor") as HTMLElement | null;
+        const bagType = editor?.dataset.bagfilter as ItemSlot | undefined;
+        if (bagType) this.cb.onBagFilterDel(bagType, Number(arg));
+        else if (this.filterTarget) this.cb.onRowFilterDel(this.filterTarget.tab, this.filterTarget.row, Number(arg));
         break;
       }
+      case "organizeBag": this.cb.onOrganizeBag(); break;
+      case "openBagFilter":
+        this.bagFilterModalOpen = true;
+        this.bagFilterModalType = this.activeBagFilter === "all" ? null : this.activeBagFilter;
+        this.renderBagFilterModal(this.currentState);
+        break;
+      case "closeBagFilter":
+        this.bagFilterModalOpen = false;
+        this.renderBagFilterModal(this.currentState);
+        break;
+      case "bagFilterPickType":
+        this.bagFilterModalType = arg as ItemSlot;
+        this.renderBagFilterModal(this.currentState);
+        break;
+      // ---- 核心 ----
       case "openCore":
-        this.coreTarget = {
-          kind: t.dataset.kind as MachineTargetKind,
-          id: t.dataset.targetId ?? "",
-          slotIndex: Number(t.dataset.slotIndex ?? "0"),
-        };
+        this.coreTarget = this.readCoreTarget(t);
         this.renderCoreModal(this.currentState);
         break;
-      case "closeCore":
-        this.coreTarget = null;
-        this.renderCoreModal(this.currentState);
-        break;
+      case "closeCore": this.coreTarget = null; this.renderCoreModal(this.currentState); break;
       case "socketCoreInv":
-        if (this.coreTarget) this.cb.onSocketCore(this.coreTarget.kind, this.coreTarget.id, this.coreTarget.slotIndex, Number(arg), false);
+        if (this.coreTarget) this.cb.onSocketCore(this.coreTarget, Number(arg), false);
         this.coreTarget = null;
         this.renderCoreModal(this.currentState);
         break;
       case "socketCoreWare":
-        if (this.coreTarget) this.cb.onSocketCore(this.coreTarget.kind, this.coreTarget.id, this.coreTarget.slotIndex, Number(arg), true);
+        if (this.coreTarget) this.cb.onSocketCore(this.coreTarget, Number(arg), true);
         this.coreTarget = null;
         this.renderCoreModal(this.currentState);
         break;
-      case "unsocketCore":
-        this.cb.onUnsocketCore(
-          t.dataset.kind as MachineTargetKind,
-          t.dataset.targetId ?? "",
-          Number(t.dataset.slotIndex ?? "0"),
-        );
-        break;
-      case "filterSweep":
-        this.cb.onFilterSweep();
-        break;
-      case "craftDismantler":
-        this.cb.onCraftDismantler(Number(t.dataset.qty ?? "1"));
-        break;
-      case "toggleDism":
-        this.cb.onToggleDismantlerActive();
-        break;
-      case "craftCoreCrafter":
-        this.cb.onCraftCoreCrafter(Number(t.dataset.qty ?? "1"));
-        break;
-      case "toggleCoreCrafter":
-        this.cb.onToggleCoreCrafterActive();
-        break;
-      case "researchBase":
-        this.cb.onResearchBase(arg as BaseResearchSlot);
-        break;
-      case "victoryContinue":
-        this.cb.onVictoryContinue();
-        break;
-      case "reincarnate":
-        this.cb.onReincarnate(arg as ReincarnationBuff);
-        break;
+      case "unsocketCore": this.cb.onUnsocketCore(this.readCoreTarget(t)); break;
+      // ---- 研究室 ----
+      case "researchBase": this.cb.onResearchBase(arg as BaseResearchSlot); break;
+      // ---- 輪迴 ----
+      case "victoryContinue": this.cb.onVictoryContinue(); break;
+      case "reincarnate": this.cb.onReincarnate(arg as ReincarnationBuff); break;
     }
   }
 
-  /** 雿輻??雿??澆嚗?撱箏????踴??啣翰??銝西?銝甈?live ?湔??*/
+  private readCoreTarget(t: HTMLElement): CoreTarget {
+    const slotIndex = Number(t.dataset.slotIndex ?? "0");
+    if (t.dataset.coreKind === "lab") return { kind: "lab", slotIndex };
+    return { kind: "row", tab: Number(t.dataset.tab), row: Number(t.dataset.row), slotIndex };
+  }
+
+  /** 新增過濾規則：依編輯器所在情境（背包類型 vs 機器行）分派。 */
+  private dispatchFilterAdd(editor: HTMLElement, stat: string, tier: number): void {
+    const bagType = editor.dataset.bagfilter as ItemSlot | undefined;
+    if (bagType) this.cb.onBagFilterAdd(bagType, stat, tier);
+    else if (this.filterTarget) this.cb.onRowFilterAdd(this.filterTarget.tab, this.filterTarget.row, stat, tier);
+  }
+
+  /** 規則行的「至少/至多」或數值下拉變更時，就地更新該規則。 */
+  private onFilterRuleChange(e: Event): void {
+    const field = (e.target as HTMLElement).closest?.("[data-rule-field]") as HTMLElement | null;
+    if (!field) return;
+    const ruleEl = field.closest(".fs-rule") as HTMLElement | null;
+    const editor = field.closest(".fs-editor") as HTMLElement | null;
+    if (!ruleEl || !editor) return;
+    const entry = readRuleEntry(ruleEl);
+    const index = Number(ruleEl.dataset.ruleIndex);
+    const bagType = editor.dataset.bagfilter as ItemSlot | undefined;
+    if (bagType) this.cb.onBagFilterUpdate(bagType, index, entry);
+    else if (this.filterTarget) this.cb.onRowFilterUpdate(this.filterTarget.tab, this.filterTarget.row, index, entry);
+  }
+
   refresh(state: GameState): void {
     if (state.reincarnation.cycle !== this.lastCycleSeen) {
       this.resetResearchAnimationCaches();
       this.lastCycleSeen = state.reincarnation.cycle;
     }
     this.currentState = state;
-    this.renderStages(state);
+    if (this.activeProdTab >= state.production.tabs.length) this.activeProdTab = Math.max(0, state.production.tabs.length - 1);
     this.renderBattleActions(state);
     this.renderEquipped(state);
-    this.renderMachines(state);
-    this.renderCrafterMachines(state);
+    this.renderProduction(state);
     this.renderBagTabs();
+    this.renderBagFilter(state);
     this.renderEquipInv(state);
     this.renderWarehouse(state);
     this.renderResearch();
     this.renderReincarnation(state);
     this.renderStageModal(state);
     this.renderFilterModal(state);
+    this.renderBagFilterModal(state);
+    this.renderRecipeModal(state);
     this.renderSettingsModal();
+    this.renderTabSettingsModal(state);
     this.renderCoreModal(state);
     this.renderVictoryModal(state);
     const reincTab = this.root.querySelector<HTMLElement>("[data-reinc-tab]");
     if (reincTab) reincTab.hidden = !state.reincarnation.gameCleared && state.reincarnation.cycle <= 1;
-    if (this.activeTab === "reincarnation" && !state.reincarnation.gameCleared && state.reincarnation.cycle <= 1) {
-      this.setTab("prod");
-    }
+    if (this.activeTab === "reincarnation" && !state.reincarnation.gameCleared && state.reincarnation.cycle <= 1) this.setTab("prod");
     this.tick(state);
   }
 
@@ -684,163 +602,127 @@ export class UI {
     this.baseFlashUntil = { weapon: 0, armor: 0, accessory: 0, core: 0 };
   }
 
-  /** 瘥??澆嚗??湔?詨潸?璅??嚗??踵?隞颱?蝭暺?*/
   tick(state: GameState): void {
     this.currentState = state;
     const s = deriveStats(state);
-    // ?梢?撅祆?
-    const setHV = (k: string, v: string) => {
-      const el = this.heroVals[k];
-      if (el) el.textContent = v;
-    };
+    const setHV = (k: string, v: string) => { const el = this.heroVals[k]; if (el) el.textContent = v; };
     setHV("hp", `${Math.ceil(Math.max(0, state.combat.heroHp))} / ${Math.round(s.hp)}`);
     setHV("atk", `${Math.round(s.atk)}`);
     setHV("def", `${Math.round(s.def)}`);
-    setHV("spd", `${attackInterval(s).toFixed(2)}s`);
+    const spdPct = Math.round(((1 + s.haste) * (1 + s.localHastePct) - 1) * 100);
+    setHV("spd", `+${spdPct}% (${(1 / attackInterval(s)).toFixed(2)})`);
     setHV("crit", `${Math.round(s.critChance * 100)}%`);
     setHV("critm", `${Math.round(s.critMult * 100)}%`);
     setHV("regen", `${Math.round(s.hpRegen)}/s`);
     setHV("dr", `${Math.round(s.dmgReductionPct * 100)}%`);
     setHV("block", `${Math.round(s.blockChance * 100)}%`);
 
-    // 蝝??賊?
     for (const id in this.matVals) {
       const n = state.inventory[id] ?? 0;
       this.matVals[id].textContent = `${n}`;
       this.matEls[id].classList.toggle("dim", n === 0);
     }
+    if (this.spareMatEl) this.spareMatEl.textContent = `${state.spareAssemblers}`;
+    if (this.spareMatWrap) this.spareMatWrap.classList.toggle("dim", state.spareAssemblers === 0);
+    if (this.labMatEl) this.labMatEl.textContent = `${state.lab.count}`;
+    if (this.labMatWrap) this.labMatWrap.classList.toggle("dim", state.lab.count === 0);
 
-    // 璈?∠?嚗?頧?蝮賣?脣漲璇撩?ˊ???眺敺絲?
-    for (const c of this.machineCards) {
-      const def = MACHINES[c.id];
-      const st = state.machines[c.id];
-      const active = st?.active ?? 0;
-      const qty = this.machineBuildQty[c.id] ?? 1;
-      c.countEl.textContent = `${active}/${st?.count ?? 0}`;
-      c.bar.style.width =
-        st && active > 0 ? `${Math.round((st.progress / def.cycleTime) * 100)}%` : "0%";
-      if (c.prodBar) c.prodBar.style.width = `${Math.round(((st?.productivity ?? 0) % 1) * 100)}%`;
-      c.cardEl.classList.toggle("idle", !!st?.idle);
-      c.craftBtn.classList.toggle("poor", !canAfford(state, totalMachinePurchaseCost(def.buildCost, st?.count ?? 0, qty)));
-    }
-    for (const row of this.machineControlRows) {
-      const count = state.machines[row.id]?.count ?? 0;
-      const qty = this.machineBuildQty[row.id] ?? 1;
-      const poor = !canAfford(state, totalMachinePurchaseCost(MACHINES[row.id].buildCost, count, qty));
-      for (const btn of row.buyBtns) btn.classList.toggle("poor", poor);
-    }
-    // ??ˊ鋆??∠?嚗?頧?蝮賣?脣漲璇撩??璅遣???眺敺絲?
-    for (const c of this.crafterMachineCards) {
-      const cr = c.slot === "core" ? CORE_MACHINE : CRAFTERS[c.slot];
-      const st = c.slot === "core" ? state.coreCrafter : state.crafters[c.slot];
-      const active = st?.active ?? 0;
-      const qty = this.crafterBuildQty[c.slot] ?? 1;
-      c.countEl.textContent = `${active}/${st?.count ?? 0}`;
-      c.bar.style.width =
-        st && active > 0
-          ? `${Math.round((st.progress / (c.slot === "core" ? CORE_MACHINE.cycleTime : cr.cycleTime)) * 100)}%`
-          : "0%";
-      if (c.prodBar) c.prodBar.style.width = `${Math.round(((st?.productivity ?? 0) % 1) * 100)}%`;
-      c.cardEl.classList.toggle("idle", !!st?.idle);
-      c.craftBtn.classList.toggle(
-        "poor",
-        !canAfford(
-          state,
-          totalMachinePurchaseCost(c.slot === "core" ? CORE_MACHINE.buildCost : cr.buildCost, st?.count ?? 0, qty),
-        ),
-      );
-    }
-    for (const row of this.crafterControlRows) {
-      const count = row.slot === "core" ? state.coreCrafter.count : state.crafters[row.slot]?.count ?? 0;
-      const qty = this.crafterBuildQty[row.slot] ?? 1;
-      const poor = !canAfford(
-        state,
-        totalMachinePurchaseCost(row.slot === "core" ? CORE_MACHINE.buildCost : CRAFTERS[row.slot].buildCost, count, qty),
-      );
-      for (const btn of row.buyBtns) btn.classList.toggle("poor", poor);
-    }
-    // ???ˊ鋆??桀?嚗??????眺敺絲?
-    for (const o of this.orderRows) {
-      const st = o.slot === "core" ? state.coreCrafter : state.crafters[o.slot];
-      o.queueEl.textContent = `${st?.queue ?? 0}`;
-      const poorMat = !canAfford(
-        state,
-        scaleCost(o.slot === "core" ? CORE_RECIPE.cost : RECIPES[o.slot].cost, this.craftOrderQty[o.slot] ?? 1),
-      );
-      for (const b of o.enqueueBtns) b.classList.toggle("poor", poorMat);
-    }
-
-    // ?弦??嚗?閫?? / ?弦頠?/ ?箏??弦? O(N) ????貉??箏?隞嗆??嚗?
-    // ??函?蝛嗅???????堆??園???甇日?輸?????賢極嚗?
-    const now = performance.now();
-    if (this.activeTab === "research") {
-    const dm = state.dismantler;
-    this.dismCountEl.textContent = `${dm.active}/${dm.count}`;
-    this.dismBar.style.width =
-      dm.active > 0 ? `${Math.round((dm.progress / DISMANTLE_CYCLE) * 100)}%` : "0%";
-    this.dismCraftBtn.classList.toggle(
-      "poor",
-      !canAfford(state, totalMachinePurchaseCost(DISMANTLER.buildCost, dm.count, this.dismantlerBuildQty)),
-    );
-    const dcount = dismantleableCount(state);
-    this.dismStatus.textContent = dcount
-      ? `可拆 ${dcount} 件裝備`
-      : "倉庫裡沒有可拆裝備";
-    for (const t of this.researchRows) {
-      const stages = state.research.stages[t.stat] ?? 0;
-      const pts = state.research.points[t.stat] ?? 0;
-      const cost = stageCost(state, stages);
-      if (this.lastStages[t.stat] === undefined) this.lastStages[t.stat] = stages;
-      // ??嚗??脣漲璇?皛踴孛?潮?????ease ??唳???
-      if (stages !== this.lastStages[t.stat]) {
-        this.researchDisp[t.stat] = stageCost(state, this.lastStages[t.stat]);
-        this.lastStages[t.stat] = stages;
-        this.flashUntil[t.stat] = now + 700;
-      }
-      const prev = this.researchDisp[t.stat] ?? pts;
-      const disp = prev + (pts - prev) * 0.18; // easing
-      this.researchDisp[t.stat] = disp;
-      t.bonus.textContent = `+${stages * 10}%`;
-      t.prog.textContent = `${Math.floor(disp)}/${cost}`;
-      t.fill.style.width = `${Math.round(Math.min(1, disp / cost) * 100)}%`;
-      t.row.classList.toggle("flash", (this.flashUntil[t.stat] ?? 0) > now);
-    }
-    // ?箏??弦嚗????瘨???隞嗆?????
-    for (const b of this.baseRows) {
-      const stages = state.baseResearch[b.slot] ?? 0;
-      const need = baseStageCost(state, stages);
-      const avail = baseItemsAvailable(state, b.slot);
-      if (this.lastBaseStages[b.slot] === undefined) this.lastBaseStages[b.slot] = stages;
-      if (stages !== this.lastBaseStages[b.slot]) {
-        this.baseResearchDisp[b.slot] = baseStageCost(state, this.lastBaseStages[b.slot]);
-        this.lastBaseStages[b.slot] = stages;
-        this.baseFlashUntil[b.slot] = now + 700;
-      }
-      const prev = this.baseResearchDisp[b.slot] ?? avail;
-      const disp = prev + (avail - prev) * 0.18;
-      this.baseResearchDisp[b.slot] = disp;
-      b.bonus.textContent = `+${Math.round(baseBonus(state, b.slot) * 100)}%`;
-      b.prog.textContent = `${Math.floor(disp)}/${need}`;
-      b.fill.style.width = `${Math.round(Math.min(1, disp / need) * 100)}%`;
-      b.row.classList.toggle("flash", (this.baseFlashUntil[b.slot] ?? 0) > now);
-    }
-    } // end research ??
-
-    // ????嚗??桀?賢?憭改?撠文?澈嚗???刻府???????冽????撱綽?
-    // ???啗?????銋?皜脫?銝甈∴??踹??典????霈?瘝???
-    const tabSwitched = this.activeTab !== this.lastTickTab;
-    this.lastTickTab = this.activeTab;
-    if (this.activeTab === "bag") {
-      if (tabSwitched || state.equipmentInv.length !== this.lastEquipLen) {
+    // 研究／基底研究升階時，裝備卡上顯示的參數（含研究加成）要即時重繪——
+    // 不分頁偵測階數總和變化（實際戰鬥數值走 deriveStats 本就即時，這裡只補顯示）。
+    let researchSig = 0;
+    for (const k in state.research.stages) researchSig += state.research.stages[k];
+    for (const k in state.baseResearch) researchSig += state.baseResearch[k as BaseResearchSlot];
+    if (researchSig !== this.lastResearchSig) {
+      this.lastResearchSig = researchSig;
+      this.renderEquipped(state);
+      if (this.activeTab === "bag") {
         this.renderEquipInv(state);
-      }
-      if (tabSwitched || state.warehouseInv.length !== this.lastWareLen) {
         this.renderWarehouse(state);
       }
     }
+
+    if (this.activeTab === "prod") {
+      const tab = state.production.tabs[this.activeProdTab];
+      const spare = state.spareAssemblers;
+      // 空行放置：無庫存時變暗
+      for (const btn of this.prodPlaceBtns) btn.classList.toggle("poor", spare <= 0);
+      for (const card of this.prodRowCards) {
+        const row = tab?.rows[card.row];
+        if (!row || !row.recipe) continue;
+        const def = PROD_RECIPES[row.recipe];
+        card.bar.style.width = `${Math.round(Math.min(1, row.progress / def.cycleTime) * 100)}%`;
+        card.prodBar.style.width = `${Math.round((row.productivity % 1) * 100)}%`;
+        card.countEl.textContent = `${row.count} 台`;
+        if (card.queueEl) card.queueEl.textContent = `${row.queue ?? 0}`;
+        card.cardEl.classList.toggle("idle", row.idle);
+        const manual = row.auto === false;
+        const canAdd = spare > 0; // 還有庫存就能加（不要求加滿 X）
+        card.addBtn.classList.toggle("ready", canAdd);
+        card.addBtn.classList.toggle("poor", !canAdd);
+        const canRemove = row.count > 1; // 只有剩 1 台時才無法再減
+        card.removeBtn.classList.toggle("ready", canRemove);
+        card.removeBtn.classList.toggle("poor", !canRemove);
+        card.orderBtn.classList.toggle("ready", manual); // 手動模式恆可下單
+        card.clearBtn.classList.toggle("ready", manual && (row.queue ?? 0) > 0);
+      }
+    }
+
+    const now = performance.now();
+    if (this.activeTab === "research") {
+      const lab = state.lab;
+      if (this.labCountEl) this.labCountEl.textContent = `${lab.count}`;
+      if (this.labBar) this.labBar.style.width = lab.count > 0 ? `${Math.round((lab.progress / DISMANTLE_CYCLE) * 100)}%` : "0%";
+      if (this.labStatus) {
+        const dcount = dismantleableCount(state);
+        this.labStatus.textContent = dcount ? `可拆 ${dcount} 件裝備` : "倉庫裡沒有可拆裝備";
+      }
+      for (const t of this.researchRows) {
+        const stages = state.research.stages[t.stat] ?? 0;
+        const pts = state.research.points[t.stat] ?? 0;
+        const cost = stageCost(state, stages);
+        if (this.lastStages[t.stat] === undefined) this.lastStages[t.stat] = stages;
+        if (stages !== this.lastStages[t.stat]) {
+          this.researchDisp[t.stat] = stageCost(state, this.lastStages[t.stat]);
+          this.lastStages[t.stat] = stages;
+          this.flashUntil[t.stat] = now + 700;
+        }
+        const prev = this.researchDisp[t.stat] ?? pts;
+        const disp = prev + (pts - prev) * 0.18;
+        this.researchDisp[t.stat] = disp;
+        t.bonus.textContent = `+${stages * 10}%`;
+        t.prog.textContent = `${Math.floor(disp)}/${cost}`;
+        t.fill.style.width = `${Math.round(Math.min(1, disp / cost) * 100)}%`;
+        t.row.classList.toggle("flash", (this.flashUntil[t.stat] ?? 0) > now);
+      }
+      for (const b of this.baseRows) {
+        const stages = state.baseResearch[b.slot] ?? 0;
+        const need = baseStageCost(state, stages);
+        const avail = baseItemsAvailable(state, b.slot);
+        if (this.lastBaseStages[b.slot] === undefined) this.lastBaseStages[b.slot] = stages;
+        if (stages !== this.lastBaseStages[b.slot]) {
+          this.baseResearchDisp[b.slot] = baseStageCost(state, this.lastBaseStages[b.slot]);
+          this.lastBaseStages[b.slot] = stages;
+          this.baseFlashUntil[b.slot] = now + 700;
+        }
+        const prev = this.baseResearchDisp[b.slot] ?? avail;
+        const disp = prev + (avail - prev) * 0.18;
+        this.baseResearchDisp[b.slot] = disp;
+        b.bonus.textContent = `+${Math.round(baseBonus(state, b.slot) * 100)}%`;
+        b.prog.textContent = `${Math.floor(disp)}/${need}`;
+        b.fill.style.width = `${Math.round(Math.min(1, disp / need) * 100)}%`;
+        b.row.classList.toggle("flash", (this.baseFlashUntil[b.slot] ?? 0) > now);
+      }
+    }
+
+    const tabSwitched = this.activeTab !== this.lastTickTab;
+    this.lastTickTab = this.activeTab;
+    if (this.activeTab === "bag") {
+      if (tabSwitched || state.equipmentInv.length !== this.lastEquipLen) this.renderEquipInv(state);
+      if (tabSwitched || state.warehouseInv.length !== this.lastWareLen) this.renderWarehouse(state);
+    }
   }
 
-  // ---- ?芸遣銝甈∠????Ｘ ----
+  // ---- 靜態面板 ----
 
   private buildHero(): void {
     this.renderBattleInfoTabs();
@@ -857,9 +739,7 @@ export class UI {
         <span>格檔率</span><b data-hv="block"></b>
       </div>`;
     this.heroVals = {};
-    this.els.hero.querySelectorAll<HTMLElement>("[data-hv]").forEach((el) => {
-      this.heroVals[el.dataset.hv!] = el;
-    });
+    this.els.hero.querySelectorAll<HTMLElement>("[data-hv]").forEach((el) => { this.heroVals[el.dataset.hv!] = el; });
     this.renderHeroPanel();
   }
 
@@ -868,8 +748,7 @@ export class UI {
       <div class="battle-subtab-row">
         <button class="tab-btn${this.activeBattleInfoTab === "equipped" ? " sel" : ""}" data-act="battleInfoTab" data-arg="equipped">裝備</button>
         <button class="tab-btn${this.activeBattleInfoTab === "stats" ? " sel" : ""}" data-act="battleInfoTab" data-arg="stats">角色數據</button>
-      </div>
-    `;
+      </div>`;
   }
 
   private renderHeroPanel(): void {
@@ -882,31 +761,30 @@ export class UI {
 
   private buildInventory(): void {
     this.els.inventory.innerHTML = Object.values(MATERIALS)
-      .map(
-        (m) => `<span class="mat" data-mat="${m.id}" title="${m.name}">${m.icon} ${m.name} <b data-mc="${m.id}">0</b></span>`,
-      )
-      .join("");
+      .map((m) => `<span class="mat" data-mat="${m.id}" title="${m.name}">${m.icon} ${m.name} <b data-mc="${m.id}">0</b></span>`)
+      .join("")
+      + `<span class="mat mat--assembler" title="組裝機（庫存）">🛠️ 組裝機 <b data-spare-mat>0</b></span>`
+      + `<span class="mat mat--lab" title="研究室（台數）">🔬 研究室 <b data-lab-mat>0</b></span>`;
     this.matVals = {};
     this.matEls = {};
-    this.els.inventory.querySelectorAll<HTMLElement>(".mat").forEach((el) => {
+    this.els.inventory.querySelectorAll<HTMLElement>(".mat[data-mat]").forEach((el) => {
       const id = el.dataset.mat!;
       this.matEls[id] = el;
       this.matVals[id] = el.querySelector<HTMLElement>("[data-mc]")!;
     });
+    this.spareMatEl = this.els.inventory.querySelector<HTMLElement>("[data-spare-mat]");
+    this.spareMatWrap = this.els.inventory.querySelector<HTMLElement>(".mat--assembler");
+    this.labMatEl = this.els.inventory.querySelector<HTMLElement>("[data-lab-mat]");
+    this.labMatWrap = this.els.inventory.querySelector<HTMLElement>(".mat--lab");
   }
-
-  // ---- ??敺??遣???----
 
   private renderStages(state: GameState): string {
     return unlockedStages(state).map((s) => {
       const cur = s.id === state.combat.stageId ? " sel" : "";
-      const enemies = summarizeStageEnemies(s);
-      const drops = summarizeStageDrops(s);
-      return `<button class="stage-btn${cur}" data-act="stage" data-arg="${s.id}"
-        title="${s.desc}">
+      return `<button class="stage-btn${cur}" data-act="stage" data-arg="${s.id}" title="${s.desc}">
         <span class="stage-btn__name">${s.name}</span>
-        <span class="stage-btn__desc">${enemies}</span>
-        <span class="stage-btn__drops">${drops}</span>
+        <span class="stage-btn__desc">${summarizeStageEnemies(s)}</span>
+        <span class="stage-btn__drops">${summarizeStageDrops(s)}</span>
       </button>`;
     }).join("");
   }
@@ -914,10 +792,7 @@ export class UI {
   private renderBattleActions(state: GameState): void {
     const currentIndex = stageIndexById(state.combat.stageId);
     const nextIndex = currentIndex + 1;
-    const canAdvance =
-      currentIndex >= 0 &&
-      nextIndex < STAGES.length &&
-      nextIndex < state.progress.unlockedStageCount;
+    const canAdvance = currentIndex >= 0 && nextIndex < STAGES.length && nextIndex < state.progress.unlockedStageCount;
     this.els.battleActions.innerHTML = canAdvance
       ? `<button class="battle-next-btn" data-act="openStageMap">地圖</button>
          <button class="battle-next-btn" data-act="stage" data-arg="${STAGES[nextIndex].id}">前往下一關</button>`
@@ -926,46 +801,48 @@ export class UI {
       <label class="battle-check">
         <input type="checkbox" data-act="toggleAutoNext" ${state.progress.autoAdvanceNext ? "checked" : ""}>
         <span>自動前往下一關</span>
-      </label>
-    `;
+      </label>`;
   }
 
   private renderStageModal(state: GameState | null): void {
-    if (!state || !this.stageModalOpen) {
-      this.stageModalEl.hidden = true;
-      this.stageModalEl.innerHTML = "";
-      return;
-    }
+    if (!state || !this.stageModalOpen) { this.stageModalEl.hidden = true; this.stageModalEl.innerHTML = ""; return; }
     this.stageModalEl.innerHTML = `
       <div class="modal-card modal-card--stage" role="dialog" aria-modal="true" aria-label="地圖選關">
-        <div class="modal-head">
-          <h3>地圖選關</h3>
-          <button class="modal-close" data-act="closeStageMap">關閉</button>
-        </div>
+        <div class="modal-head"><h3>地圖選關</h3><button class="modal-close" data-act="closeStageMap">關閉</button></div>
         <div class="stages">${this.renderStages(state)}</div>
-      </div>
-    `;
+      </div>`;
     this.stageModalEl.hidden = false;
   }
 
   private renderSettingsModal(): void {
-    if (!this.settingsModalOpen) {
-      this.settingsModalEl.hidden = true;
-      this.settingsModalEl.innerHTML = "";
-      return;
-    }
+    if (!this.settingsModalOpen) { this.settingsModalEl.hidden = true; this.settingsModalEl.innerHTML = ""; return; }
     this.settingsModalEl.innerHTML = `
       <div class="modal-card modal-card--settings" role="dialog" aria-modal="true" aria-label="設定">
-        <div class="modal-head">
-          <h3>設定</h3>
-          <button class="modal-close" data-act="closeSettings">關閉</button>
-        </div>
-        <div class="settings-list">
-          <button class="btn-reset" data-act="reset">刪除存檔</button>
-        </div>
-      </div>
-    `;
+        <div class="modal-head"><h3>設定</h3><button class="modal-close" data-act="closeSettings">關閉</button></div>
+        <div class="settings-list"><button class="btn-reset" data-act="reset">刪除存檔</button></div>
+      </div>`;
     this.settingsModalEl.hidden = false;
+  }
+
+  private renderTabSettingsModal(state: GameState | null): void {
+    const idx = this.tabSettingsIndex;
+    const tab = state && idx !== null ? state.production.tabs[idx] : null;
+    if (!state || !this.tabSettingsOpen || !tab) {
+      this.tabSettingsModalEl.hidden = true;
+      this.tabSettingsModalEl.innerHTML = "";
+      return;
+    }
+    const safeName = tab.name.replace(/"/g, "&quot;");
+    this.tabSettingsModalEl.innerHTML = `
+      <div class="modal-card modal-card--tabsettings" role="dialog" aria-modal="true" aria-label="分頁設定">
+        <div class="modal-head"><h3>分頁設定</h3><button class="modal-close" data-act="closeTabSettings">關閉</button></div>
+        <input class="tab-name-input" data-tab-name type="text" value="${safeName}" maxlength="24" />
+        <div class="tab-settings-actions">
+          <button class="mc-main-btn" data-act="confirmRenameTab">改名</button>
+          <button class="btn-danger" data-act="confirmDeleteTab">刪除</button>
+        </div>
+      </div>`;
+    this.tabSettingsModalEl.hidden = false;
   }
 
   private renderEquipped(state: GameState): void {
@@ -976,236 +853,155 @@ export class UI {
       { id: "accessory1", label: "飾品 1", eq: state.equipped.accessory[0] },
       { id: "accessory2", label: "飾品 2", eq: state.equipped.accessory[1] },
     ];
-    this.els.equipped.innerHTML = slots
-      .map(({ id, label, eq }) => {
-        if (!eq) return `<div class="eq-slot empty"><span class="slot-tag">${label}</span>未裝備</div>`;
-        return `<div class="eq-slot ${rarityClassName(eq.rarity)}" data-eqtip="eq:${id}" data-eqslot="${id}"><span class="slot-tag">${label}</span>
-          <span class="eq-name">${eq.icon} ${eq.name}</span>
-          <span class="eq-stats">${describeEquip(eq, state)}</span>
-          <button data-act="unequip" data-arg="${id}">卸下</button></div>`;
-      })
-      .join("");
+    this.els.equipped.innerHTML = slots.map(({ id, label, eq }) => {
+      if (!eq) return `<div class="eq-slot empty"><span class="slot-tag">${label}</span>未裝備</div>`;
+      return `<div class="eq-slot ${rarityClassName(eq.rarity)}" data-eqtip="eq:${id}" data-eqslot="${id}">
+        <div class="eq-slot__top">
+          <span class="slot-tag">${label}</span>
+          <button class="eq-x" data-act="unequip" data-arg="${id}" title="卸下">✕</button>
+        </div>
+        <span class="eq-name">${eq.icon} ${eq.name}</span>
+        <span class="eq-stats">${describeEquip(eq, state, false)}</span></div>`;
+    }).join("");
   }
 
-  private renderMachines(state: GameState): void {
-    this.els.machines.innerHTML = Object.values(MACHINES)
-      .map((m) => {
-        const st = state.machines[m.id];
-        const active = st?.active ?? 0;
-        const total = st?.count ?? 0;
-        const qty = this.machineBuildQty[m.id] ?? 1;
-        const buildCost = totalMachinePurchaseCost(m.buildCost, total, qty);
-        return `<div class="machine-card" data-mid="${m.id}">
-          <div class="mc-top">
-            <div class="mc-title">
-              <span class="mb-icon">${m.icon}</span>
-              <span class="mb-name">${m.name} <span class="mb-own" data-mcount>${active}/${total}</span></span>
-            </div>
-            <button class="mc-toggle${active > 0 ? "" : " paused"}" data-act="toggleMachine" data-arg="${m.id}">${active > 0 ? "運轉中" : "已暫停"}</button>
-          </div>
-          <span class="mb-recipe">${cost(m.input)} → ${cost(m.output)} / ${m.cycleTime}s</span>
-          <span class="cell-bar mc-bar"><i data-mbar></i></span>
-          <span class="cell-bar mc-bar mc-bar--productivity"><i data-mpbar></i></span>
-          ${this.renderCoreSlots("machine", m.id, st?.cores ?? [null, null])}
-          <div class="mc-btns mc-btns--primary">
-            <button class="mc-main-btn" data-act="craftMachine" data-arg="${m.id}" data-qty="${qty}">增加機台 ${qty}（${cost(buildCost)}）</button>
-          </div>
-          <div class="mc-btns mc-btns--qty">
-            ${renderQtyButtons("selectMachineQty", m.id, qty, "mc-mini-btn", [1, 10, 100, 1000, 10000])}
-          </div>
-        </div>`;
-      })
-      .join("");
-    this.machineCards = [];
-    this.machineControlRows = [];
-    this.els.machines
-      .querySelectorAll<HTMLElement>("[data-mid]")
-      .forEach((card) => {
-        this.machineCards.push({
-          id: card.dataset.mid!,
-          countEl: card.querySelector<HTMLElement>("[data-mcount]")!,
-          bar: card.querySelector<HTMLElement>("[data-mbar]")!,
-          prodBar: card.querySelector<HTMLElement>("[data-mpbar]"),
-          craftBtn: card.querySelector<HTMLElement>(".mc-main-btn")!,
-          cardEl: card,
-        });
-        this.machineControlRows.push({
-          id: card.dataset.mid!,
-          buyBtns: Array.from(card.querySelectorAll<HTMLElement>("[data-act=\"craftMachine\"]")),
-        });
-      });
+  // ---- 生產分頁 ----
+
+  private prodRow(tab: number, row: number): ProductionRow | null {
+    return this.currentState?.production.tabs[tab]?.rows[row] ?? null;
   }
 
-  /** ???鋆質?璈??瘥?璈嚗ˊ??嚗?嚗脣漲嚗?*/
-  private renderCrafterMachines(state: GameState): void {
-    const slots: Slot[] = ["weapon", "armor", "accessory"];
-    this.els.crafters.innerHTML = slots
-      .map((slot) => {
-        const r = RECIPES[slot];
-        const cr = CRAFTERS[slot];
-        const c = state.crafters[slot];
-        const active = c?.active ?? 0;
-        const total = c?.count ?? 0;
-        const buildQty = this.crafterBuildQty[slot] ?? 1;
-        const buildCost = totalMachinePurchaseCost(cr.buildCost, total, buildQty);
-        return `<div class="machine-card crafter-card" data-cmid="${slot}">
-          <div class="mc-top">
-            <div class="mc-title">
-              <span class="mb-icon">${r.icon}</span>
-              <span class="mb-name">${r.name} <span class="mb-own" data-ccount>${active}/${total}</span></span>
-            </div>
-            <button class="mc-toggle${active > 0 ? "" : " paused"}" data-act="toggleCrafter" data-arg="${slot}">${active > 0 ? "運轉中" : "已暫停"}</button>
-          </div>
-          <span class="mb-recipe">${cost(r.cost)} → 裝備 / ${cr.cycleTime}s</span>
-          <span class="cell-bar mc-bar"><i data-cbar></i></span>
-          <span class="cell-bar mc-bar mc-bar--productivity"><i data-cpbar></i></span>
-          ${this.renderCoreSlots("crafter", slot, c?.cores ?? [null, null])}
-          ${this.renderCrafterOrder(slot, state)}
-          <div class="mc-btns mc-btns--primary">
-            <button class="mc-main-btn" data-act="craftCrafter" data-arg="${slot}" data-qty="${buildQty}">增加機台 ${buildQty}（${cost(buildCost)}）</button>
-          </div>
-          <div class="mc-btns mc-btns--qty">
-            ${renderQtyButtons("selectCrafterBuildQty", slot, buildQty, "mc-mini-btn", [1, 10, 100, 1000, 10000])}
-          </div>
-          <div class="mc-btns mc-btns--secondary">
-            <button class="mc-mini-btn" data-act="openFilter" data-arg="${slot}">過濾器</button>
-          </div>
-        </div>`;
-      })
-      .join("") + (state.progress.coreUnlocked ? this.renderCoreCrafterMachine(state) : "");
-    this.crafterMachineCards = [];
-    this.crafterControlRows = [];
-    this.els.crafters.querySelectorAll<HTMLElement>("[data-cmid]").forEach((card) => {
-      this.crafterMachineCards.push({
-        slot: card.dataset.cmid as ItemSlot,
-        countEl: card.querySelector<HTMLElement>("[data-ccount]")!,
-        bar: card.querySelector<HTMLElement>("[data-cbar]")!,
-        prodBar: card.querySelector<HTMLElement>("[data-cpbar], [data-corepbar]"),
-        craftBtn: card.querySelector<HTMLElement>(".mc-main-btn")!,
+  private renderProduction(state: GameState): void {
+    if (this.activeProdTab >= state.production.tabs.length) this.activeProdTab = Math.max(0, state.production.tabs.length - 1);
+    // 子分頁列
+    this.els.prodTabs.innerHTML = `
+      <div class="prod-tab-row">
+        ${state.production.tabs.map((tab, i) => `<button class="tab-btn${i === this.activeProdTab ? " sel" : ""}" data-act="prodTab" data-arg="${i}" title="右鍵開啟分頁設定">${tab.name}</button>`).join("")}
+        <button class="tab-btn prod-tab-add" data-act="addProdTab">＋</button>
+      </div>`;
+
+    const tabIndex = this.activeProdTab;
+    const tab = state.production.tabs[tabIndex];
+    const rows = tab?.rows ?? [];
+    const flashFirst = !state.progress.placedFirstMachine && tabIndex === 0;
+    this.els.prodRows.innerHTML =
+      rows.map((row, i) => this.renderProdRow(state, tabIndex, i, row)).join("") +
+      `<button class="prod-row prod-row--empty${flashFirst ? " flash" : ""}" data-act="openRecipe" data-tab="${tabIndex}">＋ 放置機器</button>`;
+
+    this.prodRowCards = [];
+    this.els.prodRows.querySelectorAll<HTMLElement>("[data-prowidx]").forEach((card) => {
+      this.prodRowCards.push({
+        row: Number(card.dataset.prowidx),
+        bar: card.querySelector<HTMLElement>("[data-pbar]")!,
+        prodBar: card.querySelector<HTMLElement>("[data-ppbar]")!,
+        countEl: card.querySelector<HTMLElement>("[data-pcount]")!,
+        queueEl: card.querySelector<HTMLElement>("[data-queue]"),
+        addBtn: card.querySelector<HTMLElement>("[data-act=\"addMachine\"]")!,
+        removeBtn: card.querySelector<HTMLElement>("[data-act=\"removeMachine\"]")!,
+        orderBtn: card.querySelector<HTMLElement>("[data-act=\"enqueueOrder\"]")!,
+        clearBtn: card.querySelector<HTMLElement>("[data-act=\"clearOrder\"]")!,
         cardEl: card,
       });
-      this.crafterControlRows.push({
-        slot: card.dataset.cmid as ItemSlot,
-        buyBtns: Array.from(card.querySelectorAll<HTMLElement>(".mc-main-btn")),
-      });
     });
-    this.orderRows = [];
-    this.els.crafters.querySelectorAll<HTMLElement>("[data-cmid]").forEach((card) => {
-      const slot = card.dataset.cmid as ItemSlot;
-      const orderRow = card.querySelector<HTMLElement>("[data-oid]");
-      if (orderRow) {
-        this.orderRows.push({
-          slot,
-          queueEl: orderRow.querySelector<HTMLElement>("[data-oqueue]")!,
-          enqueueBtns: [orderRow.querySelector<HTMLElement>("[data-act=\"craft\"]")!],
-        });
-      }
-    });
+    this.prodPlaceBtns = Array.from(this.els.prodRows.querySelectorAll<HTMLElement>(".prod-row--empty"));
   }
 
-  private renderCoreSlots(kind: MachineTargetKind, id: string, cores: Array<Item | null>): string {
-    if (!this.currentState?.progress.coreUnlocked) return "";
-    return `<div class="core-slots">
-      ${cores
-        .map((core, index) =>
-          core
-            ? `<div class="core-slot-wrap">
-                 <button
-                   class="core-slot core-slot--filled ${rarityClassName(core.rarity)}"
-                   data-act="openCore"
-                   data-kind="${kind}"
-                   data-target-id="${id}"
-                   data-slot-index="${index}"
-                   data-eqtip="core:${core.uid}"
-                   data-core-uid="${core.uid}"
-                 >${core.icon} ${core.name}</button>
-                 <button
-                   class="core-slot-x"
-                   aria-label="卸下核心"
-                   title="卸下核心"
-                   data-act="unsocketCore"
-                   data-kind="${kind}"
-                   data-target-id="${id}"
-                   data-slot-index="${index}"
-                 >×</button>
-               </div>`
-            : `<div class="core-slot-wrap">
-                 <button class="core-slot" data-act="openCore" data-kind="${kind}" data-target-id="${id}" data-slot-index="${index}">核心槽 ${index + 1}</button>
-               </div>`,
-        )
-        .join("")}
-    </div>`;
-  }
-
-  /** 生產頁：製裝訂單列（＋N 入列、佇列數、清空）。 */
-  private renderCrafterOrder(slot: Slot, state: GameState): string {
-    const r = RECIPES[slot];
-    const c = state.crafters[slot];
-    const qty = this.craftOrderQty[slot] ?? 1;
-    return `<div class="craft-row" data-oid="${slot}">
-      <span class="cb-base cb-base--tip" title="${describeStats(r.base)}">基底</span>
-      <span class="cb-queue">佇列 <b data-oqueue>${c?.queue ?? 0}</b></span>
-      <span class="cb-acts cb-acts--primary">
-        <button class="craft-btn craft-btn--main" data-act="craft" data-arg="${slot}" data-qty="${qty}">製造 ${qty}（${cost(scaleCost(r.cost, qty))}）</button>
-      </span>
-      <span class="cb-acts cb-acts--qty">
-        ${renderQtyButtons("selectCraftQty", slot, qty, "craft-btn x10", [1, 10, 100, 1000, 10000])}
-      </span>
-      <span class="cb-acts cb-acts--secondary">
-        <button class="craft-btn clear" data-act="clearQueue" data-arg="${slot}">清空</button>
-      </span>
-    </div>`;
-  }
-
-  private renderCoreCrafterMachine(state: GameState): string {
-    const c = state.coreCrafter;
-    const buildQty = this.crafterBuildQty.core ?? 1;
-    const buildCost = totalMachinePurchaseCost(CORE_MACHINE.buildCost, c.count, buildQty);
-    const qty = this.craftOrderQty.core ?? 1;
-    return `<div class="machine-card crafter-card" data-cmid="core">
-      <div class="mc-top">
-        <div class="mc-title">
-          <span class="mb-icon">${CORE_RECIPE.icon}</span>
-          <span class="mb-name">${CORE_RECIPE.name}機 <span class="mb-own" data-ccount>${c.active}/${c.count}</span></span>
+  private renderProdRow(state: GameState, tabIndex: number, rowIndex: number, row: ProductionRow): string {
+    const def = row.recipe ? PROD_RECIPES[row.recipe] : null;
+    const title = def ? `${def.icon} ${def.name}` : "（空）";
+    const summary = def ? recipeSummary(def) : "";
+    const isItem = def?.kind === "equipment" || def?.kind === "core";
+    const auto = row.auto !== false;
+    const queue = row.queue ?? 0;
+    const mStep = row.machineStep ?? 1;
+    const oStep = row.orderStep ?? 1;
+    const coreSlots = this.renderCoreSlots(state, { kind: "row", tab: tabIndex, row: rowIndex, slotIndex: 0 }, row.cores);
+    const stepStack = (kind: "machine" | "order", step: number) => `
+      <div class="prod-row__stepstack">
+        <button class="mc-mini-btn${step < 1_000_000 ? " ready" : ""}" data-act="rowStepMul" data-kind="${kind}" data-tab="${tabIndex}" data-row="${rowIndex}">×10</button>
+        <button class="mc-mini-btn${step > 1 ? " ready" : ""}" data-act="rowStepDiv" data-kind="${kind}" data-tab="${tabIndex}" data-row="${rowIndex}">÷10</button>
+      </div>`;
+    return `<div class="prod-row" data-prowidx="${rowIndex}">
+      <div class="prod-row__topline">
+        <div class="prod-row__headline">
+          <button class="prod-row__recipe" data-act="openRecipe" data-tab="${tabIndex}" data-row="${rowIndex}">
+            <span class="prod-row__title">${title}</span>
+            <span class="prod-row__summary">${summary}</span>
+          </button>
+          <div class="prod-row__controls">
+            ${isItem ? `<button class="prod-row__filter" data-act="openFilter" data-tab="${tabIndex}" data-row="${rowIndex}">過濾器${row.filter.length ? `(${row.filter.length})` : ""}</button>` : ""}
+            <button class="prod-row__auto ${auto ? "on" : "off"}" data-act="toggleAuto" data-tab="${tabIndex}" data-row="${rowIndex}">${auto ? "自動製造" : "手動下單"}</button>
+            <button class="prod-row__x" data-act="removeRow" data-tab="${tabIndex}" data-row="${rowIndex}" title="收回整行">✕</button>
+          </div>
         </div>
-        <button class="mc-toggle${c.active > 0 ? "" : " paused"}" data-act="toggleCoreCrafter">${c.active > 0 ? "運轉中" : "已暫停"}</button>
+        <span class="cell-bar prod-row__bar"><i data-pbar></i></span>
+        <span class="cell-bar prod-row__bar prod-row__bar--prod"><i data-ppbar></i></span>
       </div>
-      <span class="mb-recipe">${cost(CORE_RECIPE.cost)} → 核心 / ${CORE_MACHINE.cycleTime}s</span>
-      <span class="cell-bar mc-bar"><i data-cbar></i></span>
-      <span class="cell-bar mc-bar mc-bar--productivity"><i data-corepbar></i></span>
-      ${this.renderCoreSlots("coreCrafter", CORE_RECIPE.id, c.cores)}
-      <div class="craft-row" data-oid="core">
-        <span class="cb-base">固定 1 詞＋變動 0~2 詞</span>
-        <span class="cb-queue">佇列 <b data-oqueue>${c.queue}</b></span>
-        <span class="cb-acts cb-acts--primary">
-          <button class="craft-btn craft-btn--main" data-act="craft" data-arg="core" data-qty="${qty}">製造 ${qty}（${cost(scaleCost(CORE_RECIPE.cost, qty))}）</button>
-        </span>
-        <span class="cb-acts cb-acts--qty">
-          ${renderQtyButtons("selectCraftQty", "core", qty, "craft-btn x10", [1, 10, 100, 1000, 10000])}
-        </span>
-        <span class="cb-acts cb-acts--secondary">
-          <button class="craft-btn clear" data-act="clearQueue" data-arg="core">清空</button>
-        </span>
-      </div>
-      <div class="mc-btns mc-btns--primary">
-        <button class="mc-main-btn" data-act="craftCoreCrafter" data-qty="${buildQty}">增加機台 ${buildQty}（${cost(buildCost)}）</button>
-      </div>
-      <div class="mc-btns mc-btns--qty">
-        ${renderQtyButtons("selectCrafterBuildQty", "core", buildQty, "mc-mini-btn", [1, 10, 100, 1000, 10000])}
-      </div>
-      <div class="mc-btns mc-btns--secondary">
-        <button class="mc-mini-btn" data-act="openFilter" data-arg="core">過濾器</button>
+      <div class="prod-row__lower">
+        <div class="prod-row__body">
+          ${coreSlots ? `<div class="prod-row__sec">${coreSlots}</div>` : ""}
+          <div class="prod-row__sec prod-row__countctl">
+            <span class="prod-row__count" data-pcount>${row.count} 台</span>
+            <div class="prod-row__countbtns">
+              <div class="prod-row__addrow">
+                <button class="mc-mini-btn" data-act="removeMachine" data-tab="${tabIndex}" data-row="${rowIndex}">－${mStep}</button>
+                <button class="mc-mini-btn" data-act="addMachine" data-tab="${tabIndex}" data-row="${rowIndex}">＋${mStep}</button>
+              </div>
+              ${stepStack("machine", mStep)}
+            </div>
+          </div>
+        </div>
+        <div class="prod-row__order${auto ? " is-auto" : ""}">
+          <div class="order-box">
+            <div class="order-queue">訂單 <b data-queue>${queue}</b></div>
+            <div class="order-btns">
+              <button class="mc-mini-btn" data-act="enqueueOrder" data-tab="${tabIndex}" data-row="${rowIndex}">+${oStep}</button>
+              ${stepStack("order", oStep)}
+              <button class="mc-mini-btn" data-act="clearOrder" data-tab="${tabIndex}" data-row="${rowIndex}">清空</button>
+            </div>
+          </div>
+        </div>
       </div>
     </div>`;
+  }
+
+  /** cores 掛在行或研究室；target 提供定位（slotIndex 會逐槽覆寫）。 */
+  private renderCoreSlots(state: GameState, target: CoreTarget, cores: Array<Item | null>): string {
+    if (!state.progress.coreUnlocked) return "";
+    const attrs = target.kind === "lab" ? `data-core-kind="lab"` : `data-core-kind="row" data-tab="${target.tab}" data-row="${target.row}"`;
+    return `<div class="core-slots">${cores.map((core, index) => core
+      ? `<div class="core-slot-wrap">
+           <button class="core-slot core-slot--filled ${rarityClassName(core.rarity)}" data-act="openCore" ${attrs} data-slot-index="${index}" data-eqtip="core:${core.uid}" data-core-uid="${core.uid}" title="${core.name}">${core.icon}</button>
+           <button class="core-slot-x" aria-label="卸下核心" title="卸下核心" data-act="unsocketCore" ${attrs} data-slot-index="${index}">×</button>
+         </div>`
+      : `<div class="core-slot-wrap"><button class="core-slot core-slot--empty" data-act="openCore" ${attrs} data-slot-index="${index}" title="核心槽 ${index + 1}">＋</button></div>`
+    ).join("")}</div>`;
+  }
+
+  private renderRecipeModal(state: GameState | null): void {
+    if (!state || !this.recipeTarget) { this.recipeModalEl.hidden = true; this.recipeModalEl.innerHTML = ""; return; }
+    const cells = Object.values(PROD_RECIPES).map((def) => {
+      const unlocked = isRecipeUnlocked(state, def.id);
+      const lockNote = def.unlock === "zone1" ? "通關 1-4 解鎖" : def.unlock === "core" ? "通關 2-4 解鎖" : "";
+      return `<button class="recipe-cell${unlocked ? "" : " locked"}" ${unlocked ? `data-act="pickRecipe" data-arg="${def.id}"` : ""}>
+        <span class="recipe-cell__icon">${def.icon}</span>
+        <span class="recipe-cell__name">${def.name}</span>
+        <span class="recipe-cell__summary">${recipeSummary(def)}</span>
+        ${unlocked ? "" : `<span class="recipe-cell__lock">🔒 ${lockNote}</span>`}
+      </button>`;
+    }).join("");
+    this.recipeModalEl.innerHTML = `
+      <div class="modal-card modal-card--recipe" role="dialog" aria-modal="true" aria-label="選擇配方">
+        <div class="modal-head"><h3>${this.recipeTarget.row === null ? "放置組裝機 — 選擇配方" : "變更配方"}</h3><button class="modal-close" data-act="closeRecipe">關閉</button></div>
+        ${this.recipeTarget.row === null && state.spareAssemblers <= 0 ? `<p class="hint">沒有庫存組裝機了——先用「組裝機」配方生產更多。</p>` : ""}
+        <div class="recipe-grid">${cells}</div>
+      </div>`;
+    this.recipeModalEl.hidden = false;
   }
 
   private renderBagTabs(): void {
     const filterButtons: Array<{ key: ItemSlot | "all"; label: string }> = [
-      { key: "all", label: "全部" },
-      { key: "weapon", label: "武器" },
-      { key: "armor", label: "防具" },
-      { key: "accessory", label: "飾品" },
-      { key: "core", label: "核心" },
+      { key: "all", label: "全部" }, { key: "weapon", label: "武器" }, { key: "armor", label: "防具" }, { key: "accessory", label: "飾品" }, { key: "core", label: "核心" },
     ];
     this.els.bagTabs.innerHTML = `
       <div class="bag-tab-row">
@@ -1213,11 +1009,8 @@ export class UI {
         <button class="tab-btn${this.activeBagTab === "warehouse" ? " sel" : ""}" data-act="bagTab" data-arg="warehouse">倉庫</button>
       </div>
       <div class="bag-filter-row">
-        ${filterButtons
-          .map((filter) => `<button class="tab-btn bag-filter-btn${this.activeBagFilter === filter.key ? " sel" : ""}" data-act="bagFilter" data-arg="${filter.key}">${filter.label}</button>`)
-          .join("")}
-      </div>
-    `;
+        ${filterButtons.map((f) => `<button class="tab-btn bag-filter-btn${this.activeBagFilter === f.key ? " sel" : ""}" data-act="bagFilter" data-arg="${f.key}">${f.label}</button>`).join("")}
+      </div>`;
     const warehouseTitle = this.root.querySelector("[data-bag-warehouse-title]") as HTMLElement | null;
     const equipHint = this.root.querySelector("[data-bag-equip-hint]") as HTMLElement | null;
     const equipTitle = this.root.querySelector("[data-bag-equip-title]") as HTMLElement | null;
@@ -1227,99 +1020,92 @@ export class UI {
   }
 
   private renderFilterModal(state: GameState | null): void {
-    if (!state || !this.filterModalSlot) {
+    const target = this.filterTarget;
+    const row = target ? state?.production.tabs[target.tab]?.rows[target.row] : null;
+    const def = row?.recipe ? PROD_RECIPES[row.recipe] : null;
+    if (!state || !target || !row || !def || !(def.kind === "equipment" || def.kind === "core")) {
       this.filterModalEl.hidden = true;
       this.filterModalEl.innerHTML = "";
       return;
     }
-
-    const slot = this.filterModalSlot;
-    const defs = slot === "core" ? CORE_RECIPE.affixPool : RECIPES[slot].affixPool;
-    const labelOf = (st: string) => st === "__any__" ? "任何詞綴" : defs.find((d) => d.stat === st)?.label ?? st;
-    const entries = state.filters[slot] ?? [];
-    const list = entries.length
-      ? entries
-          .map(
-            (e, i) =>
-              `<span class="fs-entry">${describeFilterEntry(e, labelOf)}
-              <button class="fs-x" data-act="filterDel" data-arg="${slot}:${i}">✕</button></span>`,
-          )
-          .join("")
-      : `<span class="fs-none">尚未設定條件</span>`;
-    const opts = [
-      ...(slot === "core" ? [`<option value="__any__">任何詞綴</option>`] : []),
-      ...defs.map((d) => `<option value="${d.stat}">${d.label}</option>`),
-    ].join("");
-    const tiers = Array.from({ length: 8 }, (_, k) => `<option value="${k + 1}">T${k + 1} 以上</option>`).join("");
-    const averageCrafts = estimateFilterAverageCrafts(state, slot);
-    const estimateText = averageCrafts
-      ? `平均每製作 ${formatAverageCrafts(averageCrafts)} 件，可得到 1 件符合目前設定的${ITEM_SLOT_NAME[slot]}。`
-      : `以目前設定估算，平均超過 ${formatAverageCrafts(20000)} 件仍可能做不到 1 件。`;
-
+    const slot: ItemSlot = def.kind === "core" ? "core" : (def.slot as ItemSlot);
+    const avg = estimateFilterAverageCrafts(state, slot, row.cores, row.filter);
+    const estimateText = avg
+      ? `平均每製作 ${formatAverageCrafts(avg)} 件，可得到 1 件被保留的${ITEM_SLOT_NAME[slot]}。`
+      : row.filter.length === 0
+        ? `尚未設定規則，這條生產線的產物都會進主背包。`
+        : `以目前規則估算，平均超過 ${formatAverageCrafts(20000)} 件仍可能做不到 1 件。`;
     this.filterModalEl.innerHTML = `
-      <div class="modal-card" role="dialog" aria-modal="true" aria-label="${ITEM_SLOT_NAME[slot]} 過濾器">
-        <div class="modal-head">
-          <h3>${ITEM_SLOT_NAME[slot]} 過濾器</h3>
-          <button class="modal-close" data-act="closeFilter">關閉</button>
-        </div>
-        <p class="hint">不符條件的新裝會自動進倉庫；空條件代表全留。</p>
-        <div class="fs-list">${list}</div>
-        <div class="fs-add">
-          <select data-fstat="${slot}">${opts}</select>
-          <select data-ftier="${slot}">${tiers}</select>
-          <button class="fs-add-btn" data-act="filterAdd" data-arg="${slot}">新增條件</button>
-        </div>
-        <div class="fs-quick">
-          <div class="fs-quick__label">變動詞綴數</div>
-          <div class="fs-quick__row">
-            ${[1, 2, 3, 4]
-              .map((count) => `<button class="fs-quick-btn" data-act="filterAddQuick" data-arg="${slot}" data-value="__minAffixes__:${count}">至少 ${count} 詞</button>`)
-              .join("")}
-          </div>
-        </div>
-        <div class="fs-quick">
-          <div class="fs-quick__label">稀有度</div>
-          <div class="fs-quick__row">
-            <button class="fs-quick-btn" data-act="filterAddQuick" data-arg="${slot}" data-value="__minRarity__:magic">至少魔法</button>
-            <button class="fs-quick-btn" data-act="filterAddQuick" data-arg="${slot}" data-value="__minRarity__:rare">至少稀有</button>
-          </div>
-        </div>
+      <div class="modal-card" role="dialog" aria-modal="true" aria-label="${ITEM_SLOT_NAME[slot]} 生產過濾器">
+        <div class="modal-head"><h3>${ITEM_SLOT_NAME[slot]} 生產過濾器（此生產線）</h3><button class="modal-close" data-act="closeFilter">關閉</button></div>
+        ${renderFilterEditor(slot, row.filter, "")}
         <div class="fs-estimate">${estimateText}</div>
-        <button class="btn-sweep" data-act="filterSweep">套用到現有背包</button>
-      </div>
-    `;
+      </div>`;
     this.filterModalEl.hidden = false;
   }
 
-  private renderCoreModal(state: GameState | null): void {
-    if (!state || !this.coreTarget) {
-      this.coreModalEl.hidden = true;
-      this.coreModalEl.innerHTML = "";
+  /** 背包整理：主背包頁顯示「整理背包」鈕，點開跳出整理過濾器視窗。 */
+  private renderBagFilter(_state: GameState): void {
+    if (this.activeBagTab !== "main") {
+      this.els.bagFilter.innerHTML = "";
+      this.els.bagFilter.hidden = true;
       return;
     }
+    this.els.bagFilter.hidden = false;
+    this.els.bagFilter.innerHTML = `<div class="bag-organize">
+      <button class="btn-sweep" data-act="openBagFilter">整理背包</button>
+    </div>`;
+  }
+
+  /** 背包整理過濾器視窗：先選道具類型（背包已篩特定類型則直接帶入），再編輯該類型規則。 */
+  private renderBagFilterModal(state: GameState | null): void {
+    if (!state || !this.bagFilterModalOpen) {
+      this.bagFilterModalEl.hidden = true;
+      this.bagFilterModalEl.innerHTML = "";
+      return;
+    }
+    const type = this.bagFilterModalType;
+    let body: string;
+    if (!type) {
+      const types: ItemSlot[] = ["weapon", "armor", "accessory", "core"];
+      body = `<p class="fs-head-note">選擇要整理的道具類型：</p>
+        <div class="bag-type-pick">
+          ${types.map((t) => `<button class="recipe-cell" data-act="bagFilterPickType" data-arg="${t}">${ITEM_SLOT_NAME[t]}</button>`).join("")}
+        </div>`;
+    } else {
+      const back = this.activeBagFilter === "all"
+        ? `<button class="fs-quick-btn" data-act="bagFilterPickType" data-arg="">↩ 換類型</button>`
+        : "";
+      body = `${renderFilterEditor(type, state.bagFilters[type] ?? [], `data-bagfilter="${type}"`)}
+        <div class="bag-organize bag-organize--modal">
+          <button class="btn-sweep" data-act="organizeBag">整理背包</button>
+          ${back}
+        </div>`;
+    }
+    this.bagFilterModalEl.innerHTML = `
+      <div class="modal-card" role="dialog" aria-modal="true" aria-label="整理背包">
+        <div class="modal-head"><h3>整理背包${type ? ` — ${ITEM_SLOT_NAME[type]}` : ""}</h3><button class="modal-close" data-act="closeBagFilter">關閉</button></div>
+        ${body}
+      </div>`;
+    this.bagFilterModalEl.hidden = false;
+  }
+
+  private renderCoreModal(state: GameState | null): void {
+    if (!state || !this.coreTarget) { this.coreModalEl.hidden = true; this.coreModalEl.innerHTML = ""; return; }
     const main = state.equipmentInv.filter((item) => item.kind === "core");
-    const ware = state.warehouseInv.filter((item) => item.kind === "core");
-    const renderList = (items: Item[], act: "socketCoreInv" | "socketCoreWare") =>
-      items.length
-        ? items.map((item) => `<div class="inv-item ${rarityClassName(item.rarity)}">
-            <button class="item-lock${item.locked ? " locked" : ""}" data-act="toggleLock" data-arg="${item.uid}" title="${item.locked ? "解鎖" : "上鎖"}">${item.locked ? "🔒" : "🔓"}</button>
-            <span class="ii-name">${item.icon} ${item.name}</span>
-            <span class="ii-stats">${describeEquip(item, state)}</span>
-            <span class="ii-btns"><button data-act="${act}" data-arg="${item.uid}">裝入</button></span>
-          </div>`).join("")
-        : `<p class="empty-note">沒有可用核心。</p>`;
+    const list = main.length
+      ? main.map((item) => `<div class="inv-item ${rarityClassName(item.rarity)}">
+          <button class="item-lock${item.locked ? " locked" : ""}" data-act="toggleLock" data-arg="${item.uid}" title="${item.locked ? "解鎖" : "上鎖"}">${item.locked ? "🔒" : "🔓"}</button>
+          <span class="ii-name">${item.icon} ${item.name}</span>
+          <span class="ii-stats">${describeEquip(item, state, false)}</span>
+          <span class="ii-btns"><button data-act="socketCoreInv" data-arg="${item.uid}">裝入</button></span>
+        </div>`).join("")
+      : `<p class="empty-note">主背包沒有可用核心（倉庫的核心無法直接裝入，需先取回主背包）。</p>`;
     this.coreModalEl.innerHTML = `
-      <div class="modal-card" role="dialog" aria-modal="true" aria-label="選擇核心">
-        <div class="modal-head">
-          <h3>選擇核心</h3>
-          <button class="modal-close" data-act="closeCore">關閉</button>
-        </div>
-        <h4>主背包</h4>
-        <div class="equip-inv">${renderList(main, "socketCoreInv")}</div>
-        <h4>倉庫</h4>
-        <div class="warehouse">${renderList(ware, "socketCoreWare")}</div>
-      </div>
-    `;
+      <div class="modal-card modal-card--core" role="dialog" aria-modal="true" aria-label="選擇核心">
+        <div class="modal-head"><h3>選擇核心</h3><button class="modal-close" data-act="closeCore">關閉</button></div>
+        <div class="equip-inv">${list}</div>
+      </div>`;
     this.coreModalEl.hidden = false;
   }
 
@@ -1327,104 +1113,85 @@ export class UI {
     this.lastEquipLen = state.equipmentInv.length;
     this.els.equipInv.style.display = this.activeBagTab === "main" ? "" : "none";
     const filteredItems = state.equipmentInv.filter((item) => this.matchesBagFilter(item));
-    if (state.equipmentInv.length === 0) {
-      this.els.equipInv.innerHTML = `<p class="empty-note">尚無裝備，去製裝吧。</p>`;
-      return;
-    }
-    const head = `<div class="inv-head">
-      <span>${filteredItems.length} / ${state.equipmentInv.length} 件</span>
-      <button class="ghost btn-discard-all" data-act="moveAllToWarehouse">全部移至倉庫</button>
-    </div>`;
-    const items = filteredItems
-      .slice(0, INV_RENDER_CAP)
-      .map(
-        (eq) => `<div class="inv-item ${rarityClassName(eq.rarity)}" data-uid="${eq.uid}" data-bag="main" data-eqtip="main:${eq.uid}">
+    if (state.equipmentInv.length === 0) { this.els.equipInv.innerHTML = `<p class="empty-note">尚無裝備，去生產線做吧。</p>`; return; }
+    const head = `<div class="inv-head"><span>${filteredItems.length} / ${state.equipmentInv.length} 件</span></div>`;
+    const items = filteredItems.slice(0, INV_RENDER_CAP).map((eq) => `<div class="inv-item ${rarityClassName(eq.rarity)}" data-uid="${eq.uid}" data-bag="main" data-eqtip="main:${eq.uid}">
         <button class="item-lock${eq.locked ? " locked" : ""}" data-act="toggleLock" data-arg="${eq.uid}" title="${eq.locked ? "解鎖" : "上鎖"}">${eq.locked ? "🔒" : "🔓"}</button>
         <span class="ii-name">${eq.icon} ${eq.name}${eq.kind === "core" ? " <span class=\"slot-tag\">核心</span>" : ""} <span class="ii-cnt">${countVariableAffixes(eq)}詞</span></span>
-        <span class="ii-stats">${describeEquip(eq, state)}</span>
-        <span class="ii-btns">
-          ${eq.kind === "equipment" ? `<button data-act="equip" data-arg="${eq.uid}">裝備</button>` : ""}
-          <button class="ghost" data-act="toWare" data-arg="${eq.uid}">→庫</button>
-        </span>
-      </div>`,
-      )
-      .join("");
+        <span class="ii-stats">${describeEquip(eq, state, false)}</span>
+        <span class="ii-btns">${eq.kind === "equipment" ? `<button data-act="equip" data-arg="${eq.uid}">裝備</button>` : ""}<button class="ghost" data-act="toWare" data-arg="${eq.uid}">倉庫</button></span>
+      </div>`).join("");
     const more = filteredItems.length - INV_RENDER_CAP;
-    const moreNote =
-      more > 0 ? `<p class="empty-note">…還有 ${more} 件（已隱藏以維持效能）</p>` : "";
+    const moreNote = more > 0 ? `<p class="empty-note">…還有 ${more} 件（已隱藏以維持效能）</p>` : "";
     const emptyFiltered = filteredItems.length === 0 ? `<p class="empty-note">目前篩選下沒有道具。</p>` : "";
     this.els.equipInv.innerHTML = head + emptyFiltered + items + moreNote;
   }
 
+  private renderWarehouse(state: GameState): void {
+    this.lastWareLen = state.warehouseInv.length;
+    this.els.warehouse.style.display = this.activeBagTab === "warehouse" ? "" : "none";
+    const filteredItems = state.warehouseInv.filter((item) => this.matchesBagFilter(item));
+    if (state.warehouseInv.length === 0) { this.els.warehouse.innerHTML = `<p class="empty-note">倉庫是空的。</p>`; return; }
+    const head = `<div class="inv-head"><span>${filteredItems.length} / ${state.warehouseInv.length} 件</span></div>`;
+    const items = filteredItems.slice(0, INV_RENDER_CAP).map((eq) => `<div class="inv-item ${rarityClassName(eq.rarity)}" data-uid="${eq.uid}" data-bag="ware" data-eqtip="ware:${eq.uid}">
+        <button class="item-lock${eq.locked ? " locked" : ""}" data-act="toggleLock" data-arg="${eq.uid}" title="${eq.locked ? "解鎖" : "上鎖"}">${eq.locked ? "🔒" : "🔓"}</button>
+        <span class="ii-name">${eq.icon} ${eq.name}${eq.kind === "core" ? " <span class=\"slot-tag\">核心</span>" : ""} <span class="ii-cnt">${countVariableAffixes(eq)}詞</span></span>
+        <span class="ii-stats">${describeEquip(eq, state, false)}</span>
+        <span class="ii-btns"><button data-act="fromWare" data-arg="${eq.uid}">←取回</button></span>
+      </div>`).join("");
+    const more = filteredItems.length - INV_RENDER_CAP;
+    const moreNote = more > 0 ? `<p class="empty-note">…還有 ${more} 件（已隱藏以維持效能）</p>` : "";
+    const emptyFiltered = filteredItems.length === 0 ? `<p class="empty-note">目前篩選下沒有道具。</p>` : "";
+    this.els.warehouse.innerHTML = head + emptyFiltered + items + moreNote;
+  }
+
+  private matchesBagFilter(item: Item): boolean {
+    if (this.activeBagFilter === "all") return true;
+    if (this.activeBagFilter === "core") return item.kind === "core";
+    return item.kind === "equipment" && item.slot === this.activeBagFilter;
+  }
+
   private renderResearch(): void {
-    const tracks = allAffixDefs(this.currentState?.progress.coreUnlocked ?? false);
-    const qty = this.dismantlerBuildQty;
     const state = this.currentState;
-    const owned = state?.dismantler.count ?? 0;
-    const buildCost = totalMachinePurchaseCost(DISMANTLER.buildCost, owned, qty);
+    const coreUnlocked = state?.progress.coreUnlocked ?? false;
+    const tracks = allAffixDefs(coreUnlocked);
+    const lab = state?.lab;
     this.els.research.innerHTML = `
       <div class="dism">
         <div class="dism-top">
-          <span class="dism-title">${DISMANTLER.icon} 拆解機 <b class="mb-own" data-dcount></b></span>
-          <button class="mc-toggle${(state?.dismantler.active ?? 0) > 0 ? "" : " paused"}" data-act="toggleDism">${(state?.dismantler.active ?? 0) > 0 ? "運轉中" : "已暫停"}</button>
+          <span class="dism-title">🔬 研究室 <b class="mb-own" data-dcount>${lab?.count ?? 0}</b></span>
           <span class="dism-status" data-dism-status></span>
         </div>
         <span class="cell-bar dism-bar"><i data-dism-bar></i></span>
-        ${this.renderCoreSlots("dismantler", DISMANTLER.id, state?.dismantler.cores ?? [null, null])}
-        <div class="mc-btns mc-btns--primary">
-          <button class="mc-main-btn" data-act="craftDismantler" data-qty="${qty}">增加機台 ${qty}（${cost(buildCost)}）</button>
-        </div>
-        <div class="mc-btns mc-btns--qty">
-          ${renderQtyButtons("selectDismQty", "dism", qty, "mc-mini-btn", [1, 10, 100])}
-        </div>
+        ${this.renderCoreSlots(state as GameState, { kind: "lab", slotIndex: 0 }, lab?.cores ?? [null, null])}
+        <p class="hint">研究室由「研究室」配方生產（生產分頁）、自動運轉；台數見下方素材列。</p>
       </div>
       <h3 class="research-sub">基底研究（拆解該類裝備後自動累積，永久提升基底與固定詞綴）</h3>
       <div class="branks">
-        ${(["weapon", "armor", "accessory", "core"] as BaseResearchSlot[])
-          .map(
-            (slot) => `<div class="brank" data-bslot="${slot}">
-            <span class="rt-name">${baseResearchLabel(slot)} <b class="rt-bonus" data-bbonus></b></span>
-            <span class="rt-prog" data-bprog></span>
-            <span class="cell-bar rt-bar"><i data-bfill></i></span>
-          </div>`,
-          )
-          .join("")}
+        ${(["weapon", "armor", "accessory", "core"] as BaseResearchSlot[]).map((slot) => `<div class="brank" data-bslot="${slot}">
+          <span class="rt-name">${baseResearchLabel(slot)} <b class="rt-bonus" data-bbonus></b></span>
+          <span class="rt-prog" data-bprog></span>
+          <span class="cell-bar rt-bar"><i data-bfill></i></span>
+        </div>`).join("")}
       </div>
       <h3 class="research-sub">詞綴研究（T3 以上詞綴提供研究值）</h3>
       <div class="rtracks">
-        ${tracks
-          .map(
-            (t) => `<div class="rtrack" data-rstat="${t.stat}">
-            <span class="rt-name">${t.label} <b class="rt-bonus" data-rt-bonus></b></span>
-            <span class="rt-prog" data-rt-prog></span>
-            <span class="cell-bar rt-bar"><i data-rt-fill></i></span>
-          </div>`,
-          )
-          .join("")}
+        ${tracks.map((t) => `<div class="rtrack" data-rstat="${t.stat}">
+          <span class="rt-name">${t.label} <b class="rt-bonus" data-rt-bonus></b></span>
+          <span class="rt-prog" data-rt-prog></span>
+          <span class="cell-bar rt-bar"><i data-rt-fill></i></span>
+        </div>`).join("")}
       </div>`;
-    this.dismCountEl = this.els.research.querySelector("[data-dcount]")!;
-    this.dismCraftBtn = this.els.research.querySelector("[data-act=\"craftDismantler\"]")!;
-    this.dismBar = this.els.research.querySelector("[data-dism-bar]")!;
-    this.dismStatus = this.els.research.querySelector("[data-dism-status]")!;
+    this.labCountEl = this.els.research.querySelector("[data-dcount]");
+    this.labBar = this.els.research.querySelector("[data-dism-bar]");
+    this.labStatus = this.els.research.querySelector("[data-dism-status]");
     this.researchRows = [];
     this.els.research.querySelectorAll<HTMLElement>("[data-rstat]").forEach((row) => {
-      this.researchRows.push({
-        stat: row.dataset.rstat!,
-        row,
-        bonus: row.querySelector<HTMLElement>("[data-rt-bonus]")!,
-        prog: row.querySelector<HTMLElement>("[data-rt-prog]")!,
-        fill: row.querySelector<HTMLElement>("[data-rt-fill]")!,
-      });
+      this.researchRows.push({ stat: row.dataset.rstat!, row, bonus: row.querySelector<HTMLElement>("[data-rt-bonus]")!, prog: row.querySelector<HTMLElement>("[data-rt-prog]")!, fill: row.querySelector<HTMLElement>("[data-rt-fill]")! });
     });
     this.baseRows = [];
     this.els.research.querySelectorAll<HTMLElement>("[data-bslot]").forEach((row) => {
-      this.baseRows.push({
-        slot: row.dataset.bslot as BaseResearchSlot,
-        row,
-        bonus: row.querySelector<HTMLElement>("[data-bbonus]")!,
-        prog: row.querySelector<HTMLElement>("[data-bprog]")!,
-        fill: row.querySelector<HTMLElement>("[data-bfill]")!,
-      });
+      this.baseRows.push({ slot: row.dataset.bslot as BaseResearchSlot, row, bonus: row.querySelector<HTMLElement>("[data-bbonus]")!, prog: row.querySelector<HTMLElement>("[data-bprog]")!, fill: row.querySelector<HTMLElement>("[data-bfill]")! });
     });
   }
 
@@ -1445,122 +1212,117 @@ export class UI {
         <div class="reinc-summary">已取得 ${buffs.research + buffs.materials + buffs.power} 個輪迴加成</div>
       </div>
       <div class="reinc-list">
-        <div class="reinc-row">
-          <span>研究成長倍率</span>
-          <b>${buffs.research} 層</b>
-          <span>目前每階 x${researchStageGrowthFactor(state).toFixed(2)}，比原始少 ${researchReduction}%</span>
-        </div>
-        <div class="reinc-row">
-          <span>素材掉落</span>
-          <b>${buffs.materials} 層</b>
-          <span>目前 x${materialDropMultiplier(state).toFixed(2)}</span>
-        </div>
-        <div class="reinc-row">
-          <span>全能力</span>
-          <b>${buffs.power} 層</b>
-          <span>目前 x${powerMultiplier(state).toFixed(2)}</span>
-        </div>
+        <div class="reinc-row"><span>研究成長倍率</span><b>${buffs.research} 層</b><span>目前每階 x${researchStageGrowthFactor(state).toFixed(2)}，比原始少 ${researchReduction}%</span></div>
+        <div class="reinc-row"><span>素材掉落</span><b>${buffs.materials} 層</b><span>目前 x${materialDropMultiplier(state).toFixed(2)}</span></div>
+        <div class="reinc-row"><span>全能力</span><b>${buffs.power} 層</b><span>目前 x${powerMultiplier(state).toFixed(2)}</span></div>
       </div>
-      ${actions}
-    `;
+      ${actions}`;
   }
 
   private renderVictoryModal(state: GameState | null): void {
-    if (!state?.reincarnation.victoryPending) {
-      this.victoryModalEl.hidden = true;
-      this.victoryModalEl.innerHTML = "";
-      return;
-    }
-
+    if (!state?.reincarnation.victoryPending) { this.victoryModalEl.hidden = true; this.victoryModalEl.innerHTML = ""; return; }
     this.victoryModalEl.innerHTML = `
       <div class="modal-card modal-card--victory" role="dialog" aria-modal="true" aria-label="通關">
-        <div class="modal-head">
-          <h3>恭喜通關</h3>
-        </div>
+        <div class="modal-head"><h3>恭喜通關</h3></div>
         <p class="victory-copy">鍛爐已經燒到盡頭，最後的敵人也倒下了。你完成了這條工廠迴圈，現在可以帶著一縷餘燼走進下一輪。</p>
-        <div class="victory-actions">
-          <button class="mc-main-btn" data-act="victoryContinue">確認，繼續遊玩</button>
-        </div>
+        <div class="victory-actions"><button class="mc-main-btn" data-act="victoryContinue">確認，繼續遊玩</button></div>
         <p class="hint">如果要開始下一輪，關閉後可到「輪迴」分頁選擇永久加成。</p>
-      </div>
-    `;
+      </div>`;
     this.victoryModalEl.hidden = false;
-  }
-
-  private renderWarehouse(state: GameState): void {
-    this.lastWareLen = state.warehouseInv.length;
-    this.els.warehouse.style.display = this.activeBagTab === "warehouse" ? "" : "none";
-    const filteredItems = state.warehouseInv.filter((item) => this.matchesBagFilter(item));
-    if (state.warehouseInv.length === 0) {
-      this.els.warehouse.innerHTML = `<p class="empty-note">倉庫是空的。</p>`;
-      return;
-    }
-    const head = `<div class="inv-head">
-      <span>${filteredItems.length} / ${state.warehouseInv.length} 件</span>
-    </div>`;
-    const items = filteredItems
-      .slice(0, INV_RENDER_CAP)
-      .map(
-        (eq) => `<div class="inv-item ${rarityClassName(eq.rarity)}" data-uid="${eq.uid}" data-bag="ware" data-eqtip="ware:${eq.uid}">
-        <button class="item-lock${eq.locked ? " locked" : ""}" data-act="toggleLock" data-arg="${eq.uid}" title="${eq.locked ? "解鎖" : "上鎖"}">${eq.locked ? "🔒" : "🔓"}</button>
-        <span class="ii-name">${eq.icon} ${eq.name}${eq.kind === "core" ? " <span class=\"slot-tag\">核心</span>" : ""} <span class="ii-cnt">${countVariableAffixes(eq)}詞</span></span>
-        <span class="ii-stats">${describeEquip(eq, state)}</span>
-        <span class="ii-btns">
-          <button data-act="fromWare" data-arg="${eq.uid}">←取回</button>
-        </span>
-      </div>`,
-      )
-      .join("");
-    const more = filteredItems.length - INV_RENDER_CAP;
-    const moreNote =
-      more > 0 ? `<p class="empty-note">…還有 ${more} 件（已隱藏以維持效能）</p>` : "";
-    const emptyFiltered = filteredItems.length === 0 ? `<p class="empty-note">目前篩選下沒有道具。</p>` : "";
-    this.els.warehouse.innerHTML = head + emptyFiltered + items + moreNote;
-  }
-
-  private matchesBagFilter(item: Item): boolean {
-    if (this.activeBagFilter === "all") return true;
-    if (this.activeBagFilter === "core") return item.kind === "core";
-    return item.kind === "equipment" && item.slot === this.activeBagFilter;
   }
 }
 
-// ---- ?澆?????----
+// ---- 純函式輔助 ----
 
-/** ?券閰韌憿?嚗楊銝局?駁?嚗?靘?蝛嗉??”?具?*/
+function recipeSummary(def: ProdRecipeDef): string {
+  const out = def.kind === "refine" && def.output
+    ? cost(def.output)
+    : def.kind === "equipment" ? "裝備"
+    : def.kind === "core" ? "核心"
+    : def.kind === "assembler" ? "組裝機"
+    : "研究室";
+  return `${cost(def.input)} → ${out} / ${def.cycleTime}s`;
+}
+
 function allAffixDefs(includeCore: boolean): { stat: string; label: string }[] {
   const seen = new Set<string>();
   const out: { stat: string; label: string }[] = [];
   for (const slot of ["weapon", "armor", "accessory"] as Slot[]) {
     for (const d of RECIPES[slot].affixPool) {
-      if (!seen.has(d.stat)) {
-        seen.add(d.stat);
-        out.push({ stat: d.stat, label: d.label });
-      }
+      if (!seen.has(d.stat)) { seen.add(d.stat); out.push({ stat: d.stat, label: d.label }); }
     }
   }
   if (includeCore) {
     for (const d of CORE_RECIPE.affixPool) {
-      if (!seen.has(d.stat)) {
-        seen.add(d.stat);
-        out.push({ stat: d.stat, label: d.label });
-      }
+      if (!seen.has(d.stat)) { seen.add(d.stat); out.push({ stat: d.stat, label: d.label }); }
     }
   }
   return out;
 }
 
-function describeFilterEntry(entry: FilterEntry, labelOf: (stat: string) => string): string {
-  if (entry.kind === "affixTier") return `${labelOf(entry.stat)} ≥ T${entry.minTier}`;
-  if (entry.kind === "minVariableAffixes") return `變動詞綴至少 ${entry.count} 詞`;
-  return `稀有度至少 ${rarityLabel(entry.rarity)}`;
+/** 過濾規則編輯器（機器行 modal 與背包整理共用）。ctxAttr 為背包情境帶 data-bagfilter。 */
+function renderFilterEditor(slot: ItemSlot, entries: FilterEntry[], ctxAttr: string): string {
+  const defs = slot === "core" ? CORE_RECIPE.affixPool : RECIPES[slot].affixPool;
+  const rules = entries.length
+    ? entries.map((e, i) => renderRuleLine(e, i, slot)).join("")
+    : `<div class="fs-none">尚未設定規則（全部保留）</div>`;
+  const opts = [
+    ...(slot === "core" ? [`<option value="__any__">任何詞綴</option>`] : []),
+    ...defs.map((d) => `<option value="${d.stat}">${d.label}</option>`),
+  ].join("");
+  const tiers = Array.from({ length: 8 }, (_, k) => `<option value="${k + 1}">T${k + 1}</option>`).join("");
+  return `<div class="fs-editor" ${ctxAttr}>
+    <p class="fs-head-note">符合此規則的物品會被保留，其餘會回收至倉庫。</p>
+    <div class="fs-list">${rules}</div>
+    <div class="fs-add">
+      <select data-fadd-stat>${opts}</select>
+      <select data-fadd-tier>${tiers}</select>
+      <button class="fs-add-btn" data-act="filterAdd">＋詞綴階規則</button>
+    </div>
+    <div class="fs-quick">
+      ${[1, 2, 3, 4].map((c) => `<button class="fs-quick-btn" data-act="filterAddQuick" data-value="__minAffixes__:${c}">＋詞綴數 ≥ ${c}</button>`).join("")}
+      <button class="fs-quick-btn" data-act="filterAddQuick" data-value="__minRarity__:magic">＋稀有度 ≥ 魔法</button>
+      <button class="fs-quick-btn" data-act="filterAddQuick" data-value="__minRarity__:rare">＋稀有度 ≥ 稀有</button>
+    </div>
+  </div>`;
 }
 
-function rarityLabel(rarity: ItemRarity): string {
-  if (rarity === "magic") return "魔法";
-  if (rarity === "rare") return "稀有";
-  if (rarity === "legendary") return "傳奇";
-  return "一般";
+function renderRuleLine(entry: FilterEntry, index: number, slot: ItemSlot): string {
+  const defs = slot === "core" ? CORE_RECIPE.affixPool : RECIPES[slot].affixPool;
+  const labelOf = (st: string) => (st === "__any__" ? "任何詞綴" : defs.find((d) => d.stat === st)?.label ?? st);
+  const cmpSel = `<select class="fs-rule__cmp" data-rule-field="cmp">
+    <option value="gte"${entry.cmp === "gte" ? " selected" : ""}>至少</option>
+    <option value="lte"${entry.cmp === "lte" ? " selected" : ""}>至多</option>
+  </select>`;
+  let name = "";
+  let stat = "";
+  let valueSel = "";
+  if (entry.kind === "affixTier") {
+    name = `${labelOf(entry.stat)} 階級`;
+    stat = entry.stat;
+    valueSel = `<select class="fs-rule__value" data-rule-field="value">${Array.from({ length: 8 }, (_, k) => `<option value="${k + 1}"${entry.tier === k + 1 ? " selected" : ""}>T${k + 1}</option>`).join("")}</select>`;
+  } else if (entry.kind === "variableAffixes") {
+    name = "變動詞綴數";
+    valueSel = `<select class="fs-rule__value" data-rule-field="value">${[0, 1, 2, 3, 4].map((c) => `<option value="${c}"${entry.count === c ? " selected" : ""}>${c} 條</option>`).join("")}</select>`;
+  } else {
+    name = "稀有度";
+    const rs: Array<[ItemRarity, string]> = [["normal", "一般"], ["magic", "魔法"], ["rare", "稀有"], ["legendary", "傳奇"]];
+    valueSel = `<select class="fs-rule__value" data-rule-field="value">${rs.map(([r, l]) => `<option value="${r}"${entry.rarity === r ? " selected" : ""}>${l}</option>`).join("")}</select>`;
+  }
+  return `<div class="fs-rule" data-rule-index="${index}" data-rule-kind="${entry.kind}" data-rule-stat="${stat}">
+    <span class="fs-rule__name">${name}</span>${cmpSel}${valueSel}
+    <button class="fs-x" data-act="filterDel" data-arg="${index}">✕</button>
+  </div>`;
+}
+
+/** 從規則行的下拉狀態建出 FilterEntry（用於就地編輯）。 */
+function readRuleEntry(ruleEl: HTMLElement): FilterEntry {
+  const kind = ruleEl.dataset.ruleKind;
+  const cmp = ((ruleEl.querySelector('[data-rule-field="cmp"]') as HTMLSelectElement).value) as FilterCmp;
+  const value = (ruleEl.querySelector('[data-rule-field="value"]') as HTMLSelectElement).value;
+  if (kind === "affixTier") return { kind: "affixTier", stat: ruleEl.dataset.ruleStat as FilterStat, cmp, tier: Number(value) };
+  if (kind === "variableAffixes") return { kind: "variableAffixes", cmp, count: Number(value) };
+  return { kind: "rarity", cmp, rarity: value as ItemRarity };
 }
 
 function baseResearchLabel(slot: BaseResearchSlot): string {
@@ -1568,107 +1330,58 @@ function baseResearchLabel(slot: BaseResearchSlot): string {
 }
 
 function cost(c: Record<string, number>): string {
-  return Object.entries(c)
-    .map(([mat, q]) => `${MATERIALS[mat]?.icon ?? ""}${q}`)
-    .join(" ");
-}
-
-function scaleCost(c: Record<string, number>, qty: number): Record<string, number> {
-  return Object.fromEntries(Object.entries(c).map(([mat, q]) => [mat, q * qty]));
-}
-
-function renderQtyButtons(
-  act: string,
-  arg: string,
-  selected: number,
-  className = "mc-mini-btn",
-  options = [1, 10, 100],
-): string {
-  return options
-    .map((qty) => {
-      const sel = qty === selected ? " sel" : "";
-      return `<button class="${className}${sel}" data-act="${act}" data-arg="${arg}" data-qty="${qty}">${qty}</button>`;
-    })
-    .join("");
+  return Object.entries(c).map(([mat, q]) => `${MATERIALS[mat]?.icon ?? ""}${q}`).join(" ");
 }
 
 function describeStats(s: Partial<StatBlock>): string {
-  return Object.entries(s)
-    .map(([k, v]) => statLabel(k as keyof StatBlock, v as number))
-    .join(" ");
+  return Object.entries(s).map(([k, v]) => statLabel(k as keyof StatBlock, v as number)).join(" ");
 }
 
-function describeEquip(eq: Item, state: GameState): string {
-  const summary = eq.kind === "equipment" && eq.slot === "weapon"
-    ? getEquipmentSummaryRows(state, eq)
-        .slice(0, 1)
-        .map((row) => `<span class="eq-summary-line">${row.label} ${formatViewValue(row.value, row.pct)}</span>`)
-        .join("<br>")
+/** 數值一律計入研究加成（生效值）；showBonus=false 時僅省略 (+X%) 標與武器摘要，用於精簡的裝備面板。 */
+function describeEquip(eq: Item, state: GameState, showBonus = true): string {
+  const summary = showBonus && eq.kind === "equipment" && eq.slot === "weapon"
+    ? getEquipmentSummaryRows(state, eq).slice(0, 1).map((row) => `<span class="eq-summary-line">${row.label} ${formatViewValue(row.value, row.pct)}</span>`).join("<br>")
     : "";
   const base = eq.kind === "equipment"
     ? (() => {
         const baseMult = 1 + baseBonus(state, eq.slot);
-        const baseTag =
-          baseMult > 1 ? ` <span class="aff-buff">(+${Math.round((baseMult - 1) * 100)}%)</span>` : "";
-        const baseStr = Object.entries(eq.base)
-          .map(([k, v]) => statLabel(k, (v as number) * baseMult))
-          .join(" ");
+        const baseTag = showBonus && baseMult > 1 ? ` <span class="aff-buff">(+${Math.round((baseMult - 1) * 100)}%)</span>` : "";
+        const baseStr = Object.entries(eq.base).map(([k, v]) => statLabel(k, (v as number) * baseMult)).join(" ");
         return baseStr ? baseStr + baseTag : "";
       })()
     : "";
-  const aff = eq.affixes.map((a) => {
+  const aff = [...eq.affixes].sort((a, b) => a.stat.localeCompare(b.stat)).map((a) => {
     const mult = affixBonusMultiplier(state, eq, a);
     const bonus = mult - 1;
-    const buff = bonus > 0 ? ` <span class="aff-buff">(+${Math.round(bonus * 100)}%)</span>` : "";
+    const buff = showBonus && bonus > 0 ? ` <span class="aff-buff">(+${Math.round(bonus * 100)}%)</span>` : "";
     const eff = a.value * mult;
-    const val = a.pct
-      ? (a.stat === "upgradeTierChance" ? formatSpecialPct(eff, 2) : Math.round(eff * 100) + "%")
-      : fmtNum(eff);
+    const val = a.pct ? (a.stat === "upgradeTierChance" ? formatSpecialPct(eff, 2) : Math.round(eff * 100) + "%") : fmtNum(eff);
     const fixed = a.fixed ? `<span class="aff-tier aff-tier--fixed">固定</span>` : "";
-    return `+${val} ${a.label} <span class="aff-tier">T${a.tier}</span>${fixed}${buff}`;
+    return `<div class="aff-line"><span class="aff-line__main">+${val} ${a.label}${fixed}${buff}</span><span class="aff-tier">T${a.tier}</span></div>`;
   });
-  return [summary, base, ...aff].filter(Boolean).join("<br>");
+  const head = [summary, base].filter(Boolean).map((line) => `<div class="aff-line">${line}</div>`);
+  return [...head, ...aff].join("");
 }
 
-function renderTooltipRow(
-  row: ReturnType<typeof getEquipmentComparisonRows>[number],
-): string {
+function renderTooltipRow(row: ReturnType<typeof getEquipmentComparisonRows>[number]): string {
   const delta = row.delta ?? 0;
   const deltaClass = delta > 0 ? "up" : delta < 0 ? "down" : "same";
   const deltaText = delta === 0 ? "±0" : `${delta > 0 ? "+" : ""}${formatViewValue(delta, row.pct)}`;
-  return `<div class="equip-tooltip__row">
-    <span>${row.label}</span>
-    <span class="equip-tooltip__value">${formatViewValue(row.value, row.pct)}</span>
-    <span class="equip-tooltip__delta ${deltaClass}">${deltaText}</span>
-  </div>`;
+  return `<div class="equip-tooltip__row"><span>${row.label}</span><span class="equip-tooltip__value">${formatViewValue(row.value, row.pct)}</span><span class="equip-tooltip__delta ${deltaClass}">${deltaText}</span></div>`;
 }
 
 function findItemByUid(state: GameState, uid: number): Item | null {
-  const direct =
-    state.equipmentInv.find((item) => item.uid === uid)
-    ?? state.warehouseInv.find((item) => item.uid === uid)
-    ?? state.equipped.weapon
-    ?? null;
-  if (direct?.uid === uid) return direct;
-
-  const equippedDirect = [
-    state.equipped.armor,
-    ...state.equipped.accessory,
-  ].find((item) => item?.uid === uid)
-    ?? null;
-  if (equippedDirect) return equippedDirect;
-
-  for (const machine of Object.values(state.machines)) {
-    const core = machine.cores.find((item) => item?.uid === uid);
-    if (core) return core;
+  const fromBags = state.equipmentInv.find((item) => item.uid === uid) ?? state.warehouseInv.find((item) => item.uid === uid);
+  if (fromBags) return fromBags;
+  const equipped = [state.equipped.weapon, state.equipped.armor, ...state.equipped.accessory].find((item) => item?.uid === uid);
+  if (equipped) return equipped;
+  for (const tab of state.production.tabs) {
+    for (const row of tab.rows) {
+      const core = row.cores.find((item) => item?.uid === uid);
+      if (core) return core;
+    }
   }
-  for (const crafter of Object.values(state.crafters)) {
-    const core = crafter.cores.find((item) => item?.uid === uid);
-    if (core) return core;
-  }
-  return state.dismantler.cores.find((item) => item?.uid === uid)
-    ?? state.coreCrafter.cores.find((item) => item?.uid === uid)
-    ?? null;
+  return state.lab.cores.find((item) => item?.uid === uid) ?? null;
 }
 
 function formatViewValue(value: number, pct: boolean): string {
@@ -1676,9 +1389,7 @@ function formatViewValue(value: number, pct: boolean): string {
 }
 
 function statLabel(k: string, v: number): string {
-  const val = isPctAffix(k as never)
-    ? (k === "upgradeTierChance" ? formatSpecialPct(v, 2) : `${Math.round(v * 100)}%`)
-    : fmtNum(v);
+  const val = isPctAffix(k as never) ? (k === "upgradeTierChance" ? formatSpecialPct(v, 2) : `${Math.round(v * 100)}%`) : fmtNum(v);
   return `+${val} ${affixLabel(k as never)}`;
 }
 
@@ -1687,7 +1398,6 @@ function formatSpecialPct(value: number, digits: number): string {
   return `${pct.toFixed(digits).replace(/\.?0+$/, "")}%`;
 }
 
-/** 撟喲?詨潭撘?嚗??其??亙?湔嚗＊蝷箔?敺?撣嗅??賊?嚗?*/
 function fmtNum(n: number): string {
   return `${Math.round(n)}`;
 }
@@ -1700,9 +1410,7 @@ function formatAverageCrafts(value: number): string {
 
 function summarizeStageEnemies(stage: StageDef): string {
   const names = new Set<string>();
-  for (const wave of stage.waves) {
-    for (const enemy of wave) names.add(enemy.name);
-  }
+  for (const wave of stage.waves) for (const enemy of wave) names.add(enemy.name);
   return `敵人：${Array.from(names).join("、")}`;
 }
 
@@ -1713,16 +1421,13 @@ function summarizeStageDrops(stage: StageDef): string {
       for (const drop of enemy.drops) {
         const current = dropMap.get(drop.material);
         const icon = MATERIALS[drop.material]?.icon ?? "";
-        if (!current) {
-          dropMap.set(drop.material, { icon, min: drop.min, max: drop.max });
-          continue;
-        }
+        if (!current) { dropMap.set(drop.material, { icon, min: drop.min, max: drop.max }); continue; }
         current.min = Math.min(current.min, drop.min);
         current.max = Math.max(current.max, drop.max);
       }
     }
   }
-  return `掉落：${Array.from(dropMap.values())
-    .map((drop) => `${drop.icon}${drop.min}-${drop.max}`)
-    .join("、")}`;
+  return `掉落：${Array.from(dropMap.values()).map((drop) => `${drop.icon}${drop.min}-${drop.max}`).join("、")}`;
 }
+
+void describeStats;

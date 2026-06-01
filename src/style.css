@@ -144,7 +144,8 @@ body {
 .panel-section.active[data-panel="bag"] {
   display: flex;
   flex-direction: column;
-  min-height: 100%;
+  height: 100%;
+  min-height: 0;
 }
 .panel-section.active.panel-section--map {
   display: flex;
@@ -373,20 +374,51 @@ body {
   display: flex;
   flex: 1 1 auto;
   min-height: 0;
-  flex-direction: column;
+  flex-direction: row;
+  align-items: stretch;
   gap: 6px;
   overflow-y: auto;
   padding-right: 2px;
 }
 .eq-slot {
+  flex: 1 1 0;
+  min-width: 0;
   display: flex;
-  align-items: center;
-  gap: 8px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
   background: var(--panel2);
   border: 1px solid var(--line);
   border-radius: 6px;
   padding: 6px 8px;
   font-size: 12px;
+}
+.eq-slot .eq-name,
+.eq-slot .eq-stats {
+  width: 100%;
+  word-break: break-word;
+}
+.eq-slot .eq-stats {
+  margin-top: 8px;
+}
+.eq-slot__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  gap: 6px;
+}
+.eq-x {
+  background: var(--bad);
+  border: none;
+  color: #fff;
+  border-radius: 5px;
+  padding: 1px 7px;
+  cursor: pointer;
+  line-height: 1.2;
+}
+.eq-x:hover {
+  filter: brightness(1.1);
 }
 .eq-slot.rarity-magic,
 .inv-item.rarity-magic,
@@ -540,31 +572,34 @@ body {
   background: #a25dff;
 }
 .core-slots {
-  width: 100%;
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  display: flex;
   gap: 6px;
 }
 .core-slot-wrap {
   position: relative;
-  min-width: 0;
 }
 .core-slot {
-  width: 100%;
-  min-height: 34px;
+  width: 38px;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   border: 1px dashed #6f5aa8;
   border-radius: 6px;
   background: rgba(124, 92, 255, 0.08);
   color: var(--text);
-  padding: 8px 10px;
-  font-size: 12px;
+  padding: 0;
+  font-size: 20px;
+  line-height: 1;
   cursor: pointer;
-  text-align: left;
+}
+.core-slot--empty {
+  color: var(--muted);
+  font-size: 18px;
 }
 .core-slot--filled {
   border-style: solid;
   background: rgba(162, 93, 255, 0.18);
-  padding-right: 28px;
 }
 .core-slot-x {
   position: absolute;
@@ -887,9 +922,19 @@ body {
   color: var(--muted);
   line-height: 1.5;
   overflow: hidden;
-  display: -webkit-box;
-  -webkit-line-clamp: 8;
-  -webkit-box-orient: vertical;
+  margin-top: 8px;
+}
+.aff-line {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+}
+.aff-line__main {
+  min-width: 0;
+}
+.aff-line .aff-tier {
+  flex: 0 0 auto;
 }
 .eq-summary-line {
   display: inline-block;
@@ -899,11 +944,12 @@ body {
 }
 .ii-btns {
   display: flex;
-  justify-content: flex-end;
   gap: 4px;
-  align-self: end;
+  align-self: stretch;
   margin-top: auto;
-  flex-wrap: wrap;
+}
+.ii-btns button {
+  flex: 1 1 0;
 }
 .inv-item button {
   background: var(--accent);
@@ -1408,15 +1454,15 @@ body {
 .btn-sweep {
   margin-top: 6px;
   width: 100%;
-  background: transparent;
+  background: var(--accent);
   border: 1px solid var(--accent);
-  color: var(--accent);
+  color: #fff;
   border-radius: 6px;
   padding: 6px;
   cursor: pointer;
 }
 .btn-sweep:hover {
-  background: var(--accent);
+  filter: brightness(1.1);
   color: #fff;
 }
 .modal-backdrop {
@@ -1583,4 +1629,523 @@ body {
 .brank.flash {
   animation: rtflash 0.35s ease-in-out 2;
   border-color: var(--gold);
+}
+
+/* ---- 生產分頁：組裝機行（生產系統大改造 2026-06-01） ---- */
+.prod-subtabs {
+  margin-bottom: 8px;
+}
+.prod-tab-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+.prod-tab-add {
+  font-weight: 700;
+}
+/* 生產分頁：只有機器列捲動，上方資訊與數量選擇固定可見 */
+.panel-section.active[data-panel="prod"] {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+.prod-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+.prod-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: var(--panel2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+.prod-row__head {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.prod-row__head .prod-row__recipe {
+  flex: 1;
+}
+.prod-row__filter {
+  background: transparent;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  border-radius: 5px;
+  padding: 2px 8px;
+  cursor: pointer;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.prod-row__filter:hover {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+.prod-row.idle {
+  border-color: var(--bad);
+}
+.prod-row__recipe {
+  grid-area: recipe;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  background: transparent;
+  border: none;
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+  padding: 0;
+}
+.prod-row__recipe:hover .prod-row__title {
+  color: var(--accent);
+}
+.prod-row__title {
+  font-weight: 600;
+}
+.prod-row__summary {
+  font-size: 11px;
+  color: var(--muted);
+}
+.prod-row__count {
+  grid-area: count;
+  color: var(--gold);
+  font-weight: 700;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.prod-row__bar {
+  grid-area: bar;
+  width: 100%;
+}
+.prod-row__bar--prod {
+  grid-area: pbar;
+  height: 4px;
+  margin-top: -2px;
+}
+.prod-row__bar--prod i {
+  background: #a25dff;
+}
+.prod-row .core-slots {
+  grid-area: cores;
+}
+.prod-row__btns {
+  grid-area: btns;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.prod-row__add {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.prod-row__tail {
+  margin-left: auto;
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
+.prod-row__toggle {
+  border: none;
+  border-radius: 5px;
+  padding: 2px 9px;
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  color: #fff;
+}
+.prod-row__toggle.running {
+  background: #2f9e44;
+}
+.prod-row__toggle.paused {
+  background: #c92a2a;
+}
+.prod-row__toggle:hover {
+  filter: brightness(1.12);
+}
+.prod-row__x {
+  background: var(--bad);
+  border: none;
+  color: #fff;
+  border-radius: 5px;
+  padding: 2px 8px;
+  cursor: pointer;
+}
+.prod-row__x:hover {
+  filter: brightness(1.1);
+}
+.prod-row--empty {
+  display: block;
+  width: 100%;
+  background: transparent;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  padding: 10px;
+  color: var(--muted);
+  cursor: pointer;
+  text-align: center;
+}
+.prod-row--empty:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.prod-row--empty.flash {
+  animation: rtflash 1s ease-in-out infinite;
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* 配方選擇視窗 grid */
+.recipe-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.recipe-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  align-items: center;
+  text-align: center;
+  background: var(--panel2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 6px;
+  color: var(--text);
+  cursor: pointer;
+}
+.recipe-cell:hover {
+  border-color: var(--accent);
+}
+.recipe-cell.locked {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.recipe-cell__icon {
+  font-size: 22px;
+}
+.recipe-cell__name {
+  font-weight: 600;
+}
+.recipe-cell__summary {
+  font-size: 10px;
+  color: var(--muted);
+}
+.recipe-cell__lock {
+  font-size: 10px;
+  color: var(--gold);
+}
+.modal-card--recipe,
+.modal-card--core {
+  width: min(720px, calc(100vw - 32px));
+  max-width: none;
+}
+
+/* ---- 過濾規則編輯器（機器行 modal / 背包整理共用） ---- */
+.fs-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.fs-head-note {
+  font-size: 14px;
+  color: var(--text);
+  margin: 0 0 2px;
+  line-height: 1.4;
+}
+.fs-editor .fs-list {
+  flex-direction: column;
+  align-items: stretch;
+}
+.fs-editor .fs-quick {
+  flex-direction: row;
+  flex-wrap: wrap;
+}
+.fs-rule {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--panel2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 4px 8px;
+}
+.fs-rule__name {
+  flex: 1;
+  font-size: 12px;
+}
+.fs-rule__cmp,
+.fs-rule__value {
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 3px;
+  font-size: 12px;
+}
+.bag-organize {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.bag-filter-edit {
+  margin-bottom: 10px;
+}
+
+.bag-type-pick {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.bag-organize--modal {
+  margin-top: 10px;
+}
+
+.app-version {
+  font-size: 11px;
+  font-weight: normal;
+  color: var(--muted);
+  vertical-align: middle;
+}
+
+.prod-step {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.prod-step__group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.prod-step__group .prod-step__label {
+  min-width: 56px;
+}
+.prod-step__val {
+  min-width: 40px;
+  text-align: center;
+  color: var(--gold);
+  font-weight: 700;
+}
+
+/* 生產行：首行橫跨整寬；下方左右切（左＝機器本體、右＝訂單區） */
+.prod-row {
+  flex-direction: column;
+  gap: 6px;
+}
+.prod-row__topline {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--line);
+}
+.prod-row__lower {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+}
+.prod-row__body {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.prod-row__main {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1 1 220px;
+  min-width: 0;
+}
+.prod-row__order {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 150px;
+  padding-left: 10px;
+  border-left: 1px solid var(--line);
+}
+.prod-row__auto {
+  border: none;
+  border-radius: 5px;
+  padding: 4px 8px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+  color: #fff;
+}
+.prod-row__auto.on {
+  background: #2f9e44;
+}
+.prod-row__auto.off {
+  background: var(--accent);
+}
+.prod-row__auto:hover {
+  filter: brightness(1.12);
+}
+.order-box {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: auto;
+}
+.order-queue {
+  font-size: 12px;
+  color: var(--gold);
+}
+.order-btns {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+}
+.prod-row__order.is-auto .order-box {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+/* 生產分頁紫色按鈕的「條件滿足」高亮：實心亮紫，與外框（未滿足）區分 */
+.mc-mini-btn.ready {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.mc-mini-btn.ready:hover {
+  filter: brightness(1.12);
+}
+
+/* 分頁設定視窗 */
+.modal-card--tabsettings {
+  max-width: 320px;
+}
+.tab-name-input {
+  width: 100%;
+  background: var(--panel2);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 14px;
+}
+.tab-name-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.tab-settings-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+.tab-settings-actions .mc-main-btn {
+  flex: 1;
+}
+.btn-danger {
+  flex: 1;
+  background: var(--bad);
+  border: none;
+  color: #fff;
+  border-radius: 5px;
+  padding: 6px 10px;
+  cursor: pointer;
+  font-weight: 700;
+}
+.btn-danger:hover {
+  filter: brightness(1.1);
+}
+
+/* 機台卡首行：過濾器／運行狀態／刪除，靠右、與本體分隔 */
+.prod-row__topbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  padding-bottom: 6px;
+  margin-bottom: 6px;
+  border-bottom: 1px solid var(--line);
+}
+
+/* 機台卡三段：首行（製造物＋配方＋控制）／核心／數量 */
+.prod-row__sec--head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--line);
+}
+.prod-row__headline {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.prod-row__headline .prod-row__recipe {
+  flex: 1;
+}
+.prod-row__controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+/* 機台數量：文字一行、按鈕一行（與訂單區版型一致） */
+.prod-row__countctl {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+}
+.prod-row__countbtns {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+}
+.prod-row__count {
+  align-self: flex-start;
+  white-space: nowrap;
+}
+.prod-row__addrow {
+  display: flex;
+  gap: 4px;
+}
+.prod-row__addrow .mc-mini-btn {
+  min-width: 0;
+  padding: 0 12px;
+  font-size: 13px;
+}
+.prod-row__stepstack {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.prod-row__stepstack .mc-mini-btn {
+  min-width: 0;
+  flex: 1;
+  padding: 0 8px;
+  font-size: 10px;
+  line-height: 1.1;
+}
+/* 底部素材列：組裝機庫存與素材以分隔線區隔 */
+.mat--assembler {
+  border-left: 1px solid var(--line);
+  padding-left: 10px;
+  margin-left: 4px;
 }

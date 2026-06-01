@@ -1,8 +1,5 @@
 import type { BaseResearchSlot, GameState, Affix, Item } from "./types.ts";
-import { spend } from "./inventory.ts";
-import { DISMANTLER } from "./content.ts";
 import { researchStageGrowthFactor } from "./reincarnation.ts";
-import { totalMachinePurchaseCost } from "./machineCosts.ts";
 import { machineCoreEffects } from "./machineCores.ts";
 
 const BASE_STAGE_BASE_COST = 5;
@@ -67,17 +64,14 @@ export function dismantleableCount(state: GameState): number {
   return state.warehouseInv.filter((item) => !item.locked).length;
 }
 
-export function craftDismantler(state: GameState): boolean {
-  if (!spend(state, totalMachinePurchaseCost(DISMANTLER.buildCost, state.dismantler.count, 1))) return false;
-  const wasRunning = state.dismantler.active > 0;
-  state.dismantler.count += 1;
-  state.dismantler.active = wasRunning ? state.dismantler.count : 0;
-  return true;
+/** 研究室運轉／停（全台一起）。 */
+export function toggleLabActive(state: GameState): void {
+  state.lab.active = !state.lab.active;
 }
 
-export function toggleDismantlerActive(state: GameState): void {
-  const d = state.dismantler;
-  d.active = d.active > 0 ? 0 : d.count;
+/** 研究室目前等效運轉台數（永遠運轉，無啟停開關）。 */
+function labRunningCount(state: GameState): number {
+  return state.lab.count;
 }
 
 function dismantleItem(state: GameState, item: Item, multiplier: number): void {
@@ -90,29 +84,28 @@ function dismantleItem(state: GameState, item: Item, multiplier: number): void {
   }
 }
 
-export function tickDismantler(state: GameState, dt: number): void {
-  const d = state.dismantler;
-  if (d.active <= 0 || state.warehouseInv.length <= 0) {
-    d.progress = 0;
-    return;
-  }
-  if (!state.warehouseInv.some((item) => !item.locked)) {
-    d.progress = 0;
+/** 研究室 tick（取代拆解機）：運轉時每週期從倉庫取未鎖裝備銷毀 → 基底＋詞綴研究值。
+ *  速度 = 基礎 × 運轉台數；核心產能提高該次研究值。 */
+export function tickLab(state: GameState, dt: number): void {
+  const lab = state.lab;
+  const running = labRunningCount(state);
+  if (running <= 0 || !state.warehouseInv.some((item) => !item.locked)) {
+    lab.progress = 0;
     return;
   }
 
-  d.progress += dt * d.active;
-  if (d.progress < DISMANTLE_CYCLE) return;
+  lab.progress += dt * running;
+  if (lab.progress < DISMANTLE_CYCLE) return;
 
-  const effects = machineCoreEffects(state, { kind: "dismantler", id: DISMANTLER.id });
+  const effects = machineCoreEffects(state, lab.cores);
   const multiplier = 1 + effects.productivity;
-  while (d.progress >= DISMANTLE_CYCLE && state.warehouseInv.some((item) => !item.locked)) {
+  while (lab.progress >= DISMANTLE_CYCLE && state.warehouseInv.some((item) => !item.locked)) {
     const index = state.warehouseInv.findIndex((item) => !item.locked);
     if (index < 0) break;
     const item = state.warehouseInv.splice(index, 1)[0] as Item;
     dismantleItem(state, item, multiplier);
-    d.progress -= DISMANTLE_CYCLE;
+    lab.progress -= DISMANTLE_CYCLE;
   }
 
-  if (!state.warehouseInv.some((item) => !item.locked)) d.progress = 0;
+  if (!state.warehouseInv.some((item) => !item.locked)) lab.progress = 0;
 }

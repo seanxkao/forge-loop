@@ -1,4 +1,4 @@
-import type { GameState, Item } from "./types.ts";
+import type { CoreItem, FilterEntry, GameState, Item } from "./types.ts";
 import { deriveLegacyItemRarity } from "./rarity.ts";
 import { SAVE_VERSION, createInitialState } from "./state.ts";
 import { normalizeUnlockProgress } from "./unlocks.ts";
@@ -16,7 +16,19 @@ function equippedItems(state: GameState): Item[] {
     state.equipped.weapon,
     state.equipped.armor,
     ...state.equipped.accessory,
-  ].flatMap((item) => item ? [item] : []);
+  ].flatMap((item) => (item ? [item] : []));
+}
+
+/** 全部「現行 schema」會持有道具的位置：背包、倉庫、已裝備、各生產行核心、研究室核心。 */
+function allStoredItems(state: GameState): Item[] {
+  const items: Item[] = [...state.equipmentInv, ...state.warehouseInv, ...equippedItems(state)];
+  for (const tab of state.production.tabs) {
+    for (const row of tab.rows) {
+      for (const core of row.cores) if (core) items.push(core);
+    }
+  }
+  for (const core of state.lab.cores) if (core) items.push(core);
+  return items;
 }
 
 export function save(state: GameState): void {
@@ -28,26 +40,13 @@ export function save(state: GameState): void {
 }
 
 function normalizeLegacyBlockStat(state: GameState): void {
-  const remapAffixes = (list: { affixes: Array<{ stat: string }> }[]) => {
-    for (const eq of list) {
-      for (const affix of eq.affixes) {
-        if (affix.stat === LEGACY_BLOCK_STAT) affix.stat = BLOCK_STAT;
-      }
-    }
-  };
-
-  remapAffixes(state.equipmentInv);
-  remapAffixes(state.warehouseInv);
-  remapAffixes(equippedItems(state));
-
-  for (const slot of Object.keys(state.filters) as Array<keyof typeof state.filters>) {
-    for (const entry of state.filters[slot]) {
-      if (entry.kind === "affixTier" && (entry.stat as string) === LEGACY_BLOCK_STAT) {
-        entry.stat = BLOCK_STAT as typeof entry.stat;
+  for (const item of allStoredItems(state)) {
+    for (const affix of item.affixes) {
+      if ((affix.stat as string) === LEGACY_BLOCK_STAT) {
+        affix.stat = BLOCK_STAT as typeof affix.stat;
       }
     }
   }
-
   if (LEGACY_BLOCK_STAT in state.research.points) {
     state.research.points[BLOCK_STAT] = state.research.points[LEGACY_BLOCK_STAT];
     delete state.research.points[LEGACY_BLOCK_STAT];
@@ -59,48 +58,33 @@ function normalizeLegacyBlockStat(state: GameState): void {
 }
 
 function normalizeLegacyItemKinds(state: GameState): void {
-  const normalizeItem = (item: { kind?: string; slot?: string; recipeId?: string } | null | undefined) => {
-    if (!item || item.kind === "equipment" || item.kind === "core") return;
-    item.kind = item.slot === "core" || item.recipeId === "core" ? "core" : "equipment";
-  };
-
-  state.equipmentInv.forEach(normalizeItem);
-  state.warehouseInv.forEach(normalizeItem);
-  equippedItems(state).forEach(normalizeItem);
-  Object.values(state.machines).forEach((machine) => machine.cores.forEach(normalizeItem));
-  Object.values(state.crafters).forEach((crafter) => crafter.cores.forEach(normalizeItem));
-  state.dismantler.cores.forEach(normalizeItem);
-  state.coreCrafter.cores.forEach(normalizeItem);
+  for (const item of allStoredItems(state)) {
+    const raw = item as { kind?: string; slot?: string; recipeId?: string };
+    if (raw.kind === "equipment" || raw.kind === "core") continue;
+    raw.kind = raw.slot === "core" || raw.recipeId === "core" ? "core" : "equipment";
+  }
 }
 
 function normalizeLegacyRarity(state: GameState): void {
-  const normalizeItem = (item: Item | null | undefined) => {
-    if (!item || item.rarity) return;
+  for (const item of allStoredItems(state)) {
+    if (item.rarity) continue;
     item.rarity = deriveLegacyItemRarity(item.kind, countVariableAffixes(item));
-  };
-
-  state.equipmentInv.forEach(normalizeItem);
-  state.warehouseInv.forEach(normalizeItem);
-  equippedItems(state).forEach(normalizeItem);
-  Object.values(state.machines).forEach((machine) => machine.cores.forEach(normalizeItem));
-  Object.values(state.crafters).forEach((crafter) => crafter.cores.forEach(normalizeItem));
-  state.dismantler.cores.forEach(normalizeItem);
-  state.coreCrafter.cores.forEach(normalizeItem);
+  }
 }
 
 function normalizeLegacyLocks(state: GameState): void {
-  const normalizeItem = (item: Item | null | undefined) => {
-    if (!item) return;
-    item.locked = !!item.locked;
-  };
+  for (const item of allStoredItems(state)) item.locked = !!item.locked;
+}
 
-  state.equipmentInv.forEach(normalizeItem);
-  state.warehouseInv.forEach(normalizeItem);
-  equippedItems(state).forEach(normalizeItem);
-  Object.values(state.machines).forEach((machine) => machine.cores.forEach(normalizeItem));
-  Object.values(state.crafters).forEach((crafter) => crafter.cores.forEach(normalizeItem));
-  state.dismantler.cores.forEach(normalizeItem);
-  state.coreCrafter.cores.forEach(normalizeItem);
+function normalizeLegacyAffixLabels(state: GameState): void {
+  for (const item of allStoredItems(state)) {
+    for (const affix of item.affixes) {
+      if (item.kind === "equipment" && item.slot === "weapon" && affix.stat === LEGACY_WEAPON_HASTE_STAT) {
+        affix.stat = WEAPON_HASTE_STAT;
+      }
+      affix.label = affixLabel(affix.stat);
+    }
+  }
 }
 
 function normalizeLegacyAccessorySlots(state: GameState): void {
@@ -114,55 +98,93 @@ function normalizeLegacyAccessorySlots(state: GameState): void {
   }
 }
 
-function normalizeLegacyFilters(state: GameState): void {
-  for (const slot of Object.keys(state.filters) as Array<keyof typeof state.filters>) {
-    state.filters[slot] = state.filters[slot].map((entry) => {
-      if ("kind" in entry) return entry;
-      const legacy = entry as { stat: string; minTier: number };
-      return { kind: "affixTier", stat: legacy.stat as never, minTier: legacy.minTier };
-    });
+/** 把舊過濾條件（minTier / minVariableAffixes / minRarity）升級成新的「至少/至多」格式。 */
+function upgradeFilterEntry(raw: unknown): FilterEntry | null {
+  if (!raw || typeof raw !== "object") return null;
+  const e = raw as Record<string, unknown>;
+  const cmp = e.cmp === "lte" ? "lte" : "gte";
+  if (e.kind === "affixTier") {
+    return { kind: "affixTier", stat: e.stat as never, cmp, tier: Number(e.tier ?? e.minTier ?? 1) };
+  }
+  if (e.kind === "minVariableAffixes" || e.kind === "variableAffixes") {
+    return { kind: "variableAffixes", cmp, count: Number(e.count ?? 0) };
+  }
+  if (e.kind === "minRarity" || e.kind === "rarity") {
+    return { kind: "rarity", cmp, rarity: (typeof e.rarity === "string" ? e.rarity : "magic") as never };
+  }
+  return null;
+}
+
+function normalizeFilterEntries(state: GameState): void {
+  const fix = (arr: unknown): FilterEntry[] => (Array.isArray(arr) ? arr.map(upgradeFilterEntry).filter((e): e is FilterEntry => e !== null) : []);
+  for (const tab of state.production.tabs) {
+    for (const row of tab.rows) row.filter = fix(row.filter);
+  }
+  for (const slot of Object.keys(state.bagFilters) as Array<keyof typeof state.bagFilters>) {
+    state.bagFilters[slot] = fix(state.bagFilters[slot]);
+  }
+}
+
+/** 舊存檔的生產行補上新欄位（auto／queue／reserved／paused），避免 undefined。 */
+function normalizeProductionRows(state: GameState): void {
+  for (const tab of state.production.tabs) {
+    for (const row of tab.rows) {
+      if (!row.reserved || typeof row.reserved !== "object") row.reserved = {};
+      if (typeof row.auto !== "boolean") row.auto = true;
+      if (typeof row.queue !== "number") row.queue = 0;
+      if (typeof row.paused !== "boolean") row.paused = false;
+      if (typeof row.machineStep !== "number" || row.machineStep < 1) row.machineStep = 1;
+      if (typeof row.orderStep !== "number" || row.orderStep < 1) row.orderStep = 1;
+    }
   }
 }
 
 function normalizeLegacyLegendaryFlags(state: GameState): void {
   state.progress.grantedLegendaryCore24 = !!state.progress.grantedLegendaryCore24;
-  state.progress.grantedLegendaryCore34 = !!state.progress.grantedLegendaryCore34;
+  state.progress.grantedLegendaryCore44 = !!state.progress.grantedLegendaryCore44;
 }
 
-function normalizeLegacyAffixLabels(state: GameState): void {
-  const normalizeItem = (item: Item | null | undefined) => {
-    if (!item) return;
-    for (const affix of item.affixes) {
-      if (item.kind === "equipment" && item.slot === "weapon" && affix.stat === LEGACY_WEAPON_HASTE_STAT) {
-        affix.stat = WEAPON_HASTE_STAT;
-      }
-      affix.label = affixLabel(affix.stat);
-    }
-  };
-
-  state.equipmentInv.forEach(normalizeItem);
-  state.warehouseInv.forEach(normalizeItem);
-  equippedItems(state).forEach(normalizeItem);
-  Object.values(state.machines).forEach((machine) => machine.cores.forEach(normalizeItem));
-  Object.values(state.crafters).forEach((crafter) => crafter.cores.forEach(normalizeItem));
-  state.dismantler.cores.forEach(normalizeItem);
-  state.coreCrafter.cores.forEach(normalizeItem);
-}
-
-function normalizeLegacyWeaponHasteFilters(state: GameState): void {
-  for (const entry of state.filters.weapon) {
-    if (entry.kind === "affixTier" && entry.stat === LEGACY_WEAPON_HASTE_STAT) {
-      entry.stat = WEAPON_HASTE_STAT;
-    }
+/** migrate 前對「原始」存檔的修補：處理 migrate 陣列規則會吃掉的舊欄位。
+ *  舊檔 `equipped.accessory` 是單一物件（雙飾品前），先包成 `[item, null]` 以免遺失。 */
+function preMigrateNormalize(saved: unknown): void {
+  if (!saved || typeof saved !== "object") return;
+  const equipped = (saved as Record<string, unknown>).equipped as Record<string, unknown> | undefined;
+  if (equipped && "accessory" in equipped && !Array.isArray(equipped.accessory)) {
+    equipped.accessory = [equipped.accessory ?? null, null];
   }
 }
 
-/** 以「現行 schema（預設值）」為形狀，把舊存檔深層合併進來。
- *  - 缺的欄位 → 補預設
- *  - 動態 record（預設為空物件，如庫存、研究點數）→ 整包沿用存檔
- *  - 固定形狀物件 → 逐鍵遞迴合併（丟棄已廢欄位）
- *  - 陣列 → 整包沿用
- *  - 純量型別不符 → 用預設（視為衝突，僅該欄位回退） */
+interface LegacyMachineTotals {
+  assemblers: number;
+  labCount: number;
+  cores: CoreItem[];
+}
+
+/** 從「原始」舊存檔抽出舊機台台數與已插核心（供生產系統大改造的遷移換算）。 */
+function extractLegacyMachines(saved: unknown): LegacyMachineTotals {
+  const totals: LegacyMachineTotals = { assemblers: 0, labCount: 0, cores: [] };
+  if (!saved || typeof saved !== "object") return totals;
+  const root = saved as Record<string, unknown>;
+  const grab = (holder: unknown, into: "assemblers" | "labCount") => {
+    if (!holder || typeof holder !== "object") return;
+    const h = holder as { count?: unknown; cores?: unknown };
+    totals[into] += Number(h.count) || 0;
+    if (Array.isArray(h.cores)) {
+      for (const core of h.cores) if (core) totals.cores.push(core as CoreItem);
+    }
+  };
+  for (const key of ["machines", "crafters"] as const) {
+    const group = root[key];
+    if (group && typeof group === "object") {
+      for (const m of Object.values(group as Record<string, unknown>)) grab(m, "assemblers");
+    }
+  }
+  grab(root.coreCrafter, "assemblers");
+  grab(root.dismantler, "labCount");
+  return totals;
+}
+
+/** 以「現行 schema（預設值）」為形狀，把舊存檔深層合併進來。 */
 function migrate(saved: unknown, def: unknown): unknown {
   if (Array.isArray(def)) return Array.isArray(saved) ? saved : def;
   if (def !== null && typeof def === "object") {
@@ -184,17 +206,26 @@ export function load(): GameState {
   try {
     const raw = localStorage.getItem(KEY);
     if (!raw) return createInitialState();
-    // 不因改版直接清檔：以現行 schema 深層合併遷移舊檔
-    const migrated = migrate(JSON.parse(raw), createInitialState()) as GameState;
+    const parsed = JSON.parse(raw);
+    preMigrateNormalize(parsed);
+    const legacy = extractLegacyMachines(parsed);
+    const migrated = migrate(parsed, createInitialState()) as GameState;
+
+    // 生產系統大改造遷移：舊機台台數 → 組裝機庫存、舊拆解機 → 研究室；已插核心退回倉庫。
+    migrated.spareAssemblers += legacy.assemblers;
+    migrated.lab.count += legacy.labCount;
+    for (const core of legacy.cores) migrated.warehouseInv.push(core);
+    if (legacy.assemblers > 0 || legacy.labCount > 0) migrated.progress.placedFirstMachine = true;
+
     normalizeLegacyAccessorySlots(migrated);
     normalizeLegacyItemKinds(migrated);
     normalizeLegacyRarity(migrated);
     normalizeLegacyLocks(migrated);
-    normalizeLegacyFilters(migrated);
     normalizeLegacyLegendaryFlags(migrated);
     normalizeLegacyAffixLabels(migrated);
-    normalizeLegacyWeaponHasteFilters(migrated);
     normalizeLegacyBlockStat(migrated);
+    normalizeFilterEntries(migrated);
+    normalizeProductionRows(migrated);
     normalizeUnlockProgress(migrated);
     migrated.version = SAVE_VERSION;
     return migrated;

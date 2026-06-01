@@ -5,7 +5,7 @@ export type EquipSlotId = "weapon" | "armor" | "accessory1" | "accessory2";
 export type ItemRarity = "normal" | "magic" | "rare" | "legendary";
 export type ItemKind = "equipment" | "core";
 export type AffixTag = "physical" | "crit" | "speed" | "life" | "defense" | "craft";
-export type MachineTargetKind = "machine" | "crafter" | "coreCrafter" | "dismantler";
+export type MachineTargetKind = "row" | "lab";
 
 export interface StatBlock {
   hp: number;
@@ -119,19 +119,25 @@ export interface CoreRecipeDef {
 
 export type FilterStat = AffixStat | "__any__";
 
+/** 比較方向：至少（≥）或至多（≤）。 */
+export type FilterCmp = "gte" | "lte";
+
 export type FilterEntry =
   | {
       kind: "affixTier";
       stat: FilterStat;
-      minTier: number;
+      cmp: FilterCmp;
+      tier: number;
     }
   | {
-      kind: "minVariableAffixes";
+      kind: "variableAffixes";
+      cmp: FilterCmp;
       count: number;
     }
   | {
-      kind: "minRarity";
-      rarity: Exclude<ItemRarity, "normal" | "legendary">;
+      kind: "rarity";
+      cmp: FilterCmp;
+      rarity: ItemRarity;
     };
 
 export interface Affix {
@@ -167,28 +173,51 @@ export interface CoreItem extends ItemBase {
 
 export type Item = Equipment | CoreItem;
 
-export interface MachineState {
+/** 生產配方 id：提煉 3 種、裝備 3 種、核心、以及機台自身（組裝機／研究室）。 */
+export type RecipeId =
+  | "smelt"
+  | "tan"
+  | "crystallize"
+  | "weapon"
+  | "armor"
+  | "accessory"
+  | "core"
+  | "assembler"
+  | "lab";
+
+/** 生產行：一條生產線。recipe 為 null 表示空行。cores 掛在整行、效果套用該線。
+ *  filter 為每行獨立（僅會 roll 物品的配方有意義，決定產物進背包或倉庫）。 */
+export interface ProductionRow {
+  recipe: RecipeId | null;
   count: number;
-  active: number;
+  paused: boolean; // 暫停的行不耗料、不產出
+  auto: boolean; // true＝連續自動生產；false＝只做訂單佇列
+  queue: number; // 手動模式下的待製訂單數
+  machineStep: number; // 此行增減機台的步進量（十的冪次、最低 1）
+  orderStep: number; // 此行下單的步進量（十的冪次、最低 1）
+
   progress: number;
   productivity: number;
   idle: boolean;
+  /** 已預留的原料緩衝（公平發料用）；最多存 台數 × 一次運轉量。UI 不顯示。 */
+  reserved: Record<string, number>;
   cores: [CoreItem | null, CoreItem | null];
+  filter: FilterEntry[];
 }
 
-export interface CrafterState {
-  count: number;
-  active: number;
-  progress: number;
-  productivity: number;
-  queue: number;
-  idle: boolean;
-  cores: [CoreItem | null, CoreItem | null];
+export interface ProductionTab {
+  name: string;
+  rows: ProductionRow[];
 }
 
-export interface DismantlerState {
+export interface ProductionState {
+  tabs: ProductionTab[];
+}
+
+/** 研究室（取代拆解機）：以台數計，只有運轉／停開關與 2 核心插槽。 */
+export interface LabState {
   count: number;
-  active: number;
+  active: boolean;
   progress: number;
   cores: [CoreItem | null, CoreItem | null];
 }
@@ -218,17 +247,21 @@ export interface ProgressState {
   unlockedStageCount: number;
   coreUnlocked: boolean;
   autoAdvanceNext: boolean;
+  placedFirstMachine: boolean;
   grantedLegendaryCore24: boolean;
-  grantedLegendaryCore34: boolean;
+  grantedLegendaryCore44: boolean;
 }
 
 export interface GameState {
   version: number;
   inventory: Record<string, number>;
-  machines: Record<string, MachineState>;
+  production: ProductionState;
+  spareAssemblers: number;
+  lab: LabState;
+  /** 背包整理過濾器（每類型一組）：「整理背包」會把現有主背包不符的收進倉庫。 */
+  bagFilters: Record<ItemSlot, FilterEntry[]>;
   equipmentInv: Item[];
   warehouseInv: Item[];
-  filters: Record<ItemSlot, FilterEntry[]>;
   equipped: {
     weapon: Equipment | null;
     armor: Equipment | null;
@@ -238,9 +271,6 @@ export interface GameState {
   research: { points: Record<string, number>; stages: Record<string, number> };
   baseResearch: Record<BaseResearchSlot, number>;
   baseResearchPoints: Record<BaseResearchSlot, number>;
-  dismantler: DismantlerState;
-  crafters: Record<Slot, CrafterState>;
-  coreCrafter: CrafterState;
   reincarnation: ReincarnationState;
   progress: ProgressState;
   nextEquipId: number;

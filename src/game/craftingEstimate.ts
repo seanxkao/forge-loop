@@ -49,9 +49,14 @@ function rollAffixes(pool: AffixDef[], count: number, upgradeTierChance: number,
   return out;
 }
 
-export function simulateCraftedItem(state: GameState, slot: ItemSlot, rng: () => number = Math.random): Item {
+export function simulateCraftedItem(
+  state: GameState,
+  slot: ItemSlot,
+  cores: ReadonlyArray<CoreItem | null> = [],
+  rng: () => number = Math.random,
+): Item {
   if (slot === "core") {
-    const effects = machineCoreEffects(state, { kind: "coreCrafter", id: CORE_RECIPE.id });
+    const effects = machineCoreEffects(state, cores);
     const pool = weightedAffixPool(CORE_RECIPE.affixPool, effects.tagWeights);
     const rarity = rollCoreRarity(effects.rarityBonus, rng);
     const affixCount = rollCoreVariableAffixCount(rarity, rng);
@@ -71,7 +76,7 @@ export function simulateCraftedItem(state: GameState, slot: ItemSlot, rng: () =>
   }
 
   const recipe = RECIPES[slot];
-  const effects = machineCoreEffects(state, { kind: "crafter", id: recipe.slot });
+  const effects = machineCoreEffects(state, cores);
   const pool = weightedAffixPool(recipe.affixPool, effects.tagWeights);
   const rarity = rollEquipmentRarity(effects.rarityBonus, rng);
   const affixCount = rollEquipmentAffixCount(rarity, rng);
