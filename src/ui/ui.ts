@@ -170,7 +170,7 @@ export class UI {
   private build(): void {
     this.root.innerHTML = `
       <div class="topbar">
-        <h1>⚒️ Forge Loop <span class="app-version">v0.0.1</span></h1>
+        <h1>⚒️ Forge Loop <span class="app-version">v0.0.2</span></h1>
         <div class="tabrail">
           <button class="tab-btn" data-act="tab" data-arg="prod">🏭 生產</button>
           <button class="tab-btn" data-act="tab" data-arg="bag">🎒 背包</button>
