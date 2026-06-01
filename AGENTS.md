@@ -26,6 +26,7 @@
 - 本機 PowerShell 擋 `npm.ps1`，請用 `npm.cmd`；在子目錄執行請 `Push-Location`。
 - 改動後以 `npm run build`（= `tsc && vite build`）驗證型別與打包。
 - 開發中文文案使用全形標點（，。：？！）；程式碼、URL、key:value 維持半形。
+- 只要有修改 UI 文字、文案或顯示字串，deploy 前一定要額外檢查一次是否出現亂碼；若有，必須先修正再交付。
 
 ## 程式結構慣例
 

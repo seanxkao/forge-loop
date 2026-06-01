@@ -4,6 +4,7 @@ import { SAVE_VERSION, createInitialState } from "./state.ts";
 import { normalizeUnlockProgress } from "./unlocks.ts";
 import { countVariableAffixes } from "./itemAffixes.ts";
 import { affixLabel } from "./affixMeta.ts";
+import { INITIAL_RUNES, RUNE_DEFS } from "./runes.ts";
 
 const KEY = "forge-loop-save";
 const LEGACY_BLOCK_STAT = "critDmgTakenReductionPct";
@@ -140,8 +141,32 @@ function normalizeProductionRows(state: GameState): void {
 }
 
 function normalizeLegacyLegendaryFlags(state: GameState): void {
+  state.progress.recipeGuideSeen = !!state.progress.recipeGuideSeen;
+  state.progress.craftedEquipmentOnce = !!state.progress.craftedEquipmentOnce;
+  state.progress.bagGuideSeen = !!state.progress.bagGuideSeen;
+  state.progress.equippedGuideSeen = !!state.progress.equippedGuideSeen;
   state.progress.grantedLegendaryCore24 = !!state.progress.grantedLegendaryCore24;
   state.progress.grantedLegendaryCore44 = !!state.progress.grantedLegendaryCore44;
+}
+
+function normalizeRunes(state: GameState): void {
+  state.runes.owned = Array.isArray(state.runes.owned)
+    ? state.runes.owned.filter((id): id is keyof typeof RUNE_DEFS => typeof id === "string" && id in RUNE_DEFS)
+    : [];
+  if (state.runes.owned.length === 0) state.runes.owned = [...INITIAL_RUNES];
+  if (!state.runes.selected || !(state.runes.selected in RUNE_DEFS) || !state.runes.owned.includes(state.runes.selected)) {
+    state.runes.selected = null;
+  }
+}
+
+function restoreRuneSelection(state: GameState, saved: unknown): void {
+  if (!saved || typeof saved !== "object") return;
+  const rawRunes = (saved as Record<string, unknown>).runes;
+  if (!rawRunes || typeof rawRunes !== "object") return;
+  const rawSelected = (rawRunes as Record<string, unknown>).selected;
+  if (typeof rawSelected !== "string" || !(rawSelected in RUNE_DEFS)) return;
+  if (!state.runes.owned.includes(rawSelected as keyof typeof RUNE_DEFS)) return;
+  state.runes.selected = rawSelected as keyof typeof RUNE_DEFS;
 }
 
 /** migrate 前對「原始」存檔的修補：處理 migrate 陣列規則會吃掉的舊欄位。
@@ -222,12 +247,14 @@ export function load(): GameState {
     normalizeLegacyRarity(migrated);
     normalizeLegacyLocks(migrated);
     normalizeLegacyLegendaryFlags(migrated);
+    normalizeRunes(migrated);
     normalizeLegacyAffixLabels(migrated);
     normalizeLegacyBlockStat(migrated);
     normalizeFilterEntries(migrated);
     normalizeProductionRows(migrated);
     normalizeUnlockProgress(migrated);
     migrated.version = SAVE_VERSION;
+    restoreRuneSelection(migrated, parsed);
     return migrated;
   } catch {
     // 解析失敗 / 損毀才重置

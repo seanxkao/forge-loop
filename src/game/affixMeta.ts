@@ -2,6 +2,8 @@ import type { AffixDef, AffixStat, AffixTag } from "./types.ts";
 
 const TAGS: Record<AffixStat, AffixTag[]> = {
   atk: ["physical"],
+  atkMin: ["physical"],
+  atkMax: ["physical"],
   localPhysPct: ["physical"],
   localHastePct: ["speed"],
   critChance: ["crit"],
@@ -30,6 +32,8 @@ const TAGS: Record<AffixStat, AffixTag[]> = {
 
 const LABELS: Record<AffixStat, string> = {
   atk: "攻擊",
+  atkMin: "??",
+  atkMax: "??",
   localPhysPct: "物理點傷%",
   localHastePct: "本地攻速",
   critChance: "暴擊率",

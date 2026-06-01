@@ -9,13 +9,16 @@ export interface EquipmentViewRow {
   key: EquipmentViewKey;
   label: string;
   value: number;
+  valueMax?: number;
   pct: boolean;
   delta?: number;
+  deltaMax?: number;
 }
 
 const HERO_STAT_KEYS = new Set<keyof StatBlock>([
   "hp",
-  "atk",
+  "atkMin",
+  "atkMax",
   "localPhysPct",
   "localHastePct",
   "def",
@@ -57,14 +60,16 @@ const ROW_ORDER: EquipmentViewKey[] = [
 export function getEquipmentSummaryRows(state: GameState, item: Item): EquipmentViewRow[] {
   const rows: EquipmentViewRow[] = [];
   if (item.kind === "equipment" && item.slot === "weapon") {
-    rows.push(makeRow("physicalDamage", getWeaponPhysicalDamage(state, item)));
+    const dmg = getWeaponPhysicalDamage(state, item);
+    rows.push(makeRow("physicalDamage", dmg.min, dmg.max));
   }
   const values = item.kind === "equipment" ? getEquipmentValues(state, item) : getCoreValues(state, item);
   for (const key of ROW_ORDER) {
     if (key === "physicalDamage") continue;
-    const value = values[key] ?? 0;
+    const value = key === "atk" ? (values.atkMin ?? 0) : (values[key] ?? 0);
+    const valueMax = key === "atk" ? (values.atkMax ?? values.atkMin ?? 0) : undefined;
     if (Math.abs(value) <= 1e-9) continue;
-    rows.push(makeRow(key, value));
+    rows.push(makeRow(key, value, valueMax));
   }
   return rows;
 }
@@ -81,7 +86,11 @@ export function getEquipmentComparisonRows(
   const rows: EquipmentViewRow[] = [];
   for (const row of currentRows) {
     const compare = equippedMap.get(row.key);
-    rows.push({ ...row, delta: row.value - (compare?.value ?? 0) });
+    rows.push({
+      ...row,
+      delta: row.value - (compare?.value ?? 0),
+      deltaMax: (row.valueMax ?? row.value) - (compare?.valueMax ?? compare?.value ?? 0),
+    });
     seen.add(row.key);
   }
   for (const row of equippedRows) {
@@ -91,23 +100,33 @@ export function getEquipmentComparisonRows(
   return rows;
 }
 
-export function getWeaponPhysicalDamage(state: GameState, eq: Equipment): number {
-  if (eq.slot !== "weapon") return 0;
+export function getWeaponPhysicalDamage(state: GameState, eq: Equipment): { min: number; max: number } {
+  if (eq.slot !== "weapon") return { min: 0, max: 0 };
   const values = getEquipmentValues(state, eq);
-  const baseAtk = values.atk ?? 0;
+  const baseAtkMin = values.atkMin ?? 0;
+  const baseAtkMax = values.atkMax ?? 0;
   const localPhysPct = values.localPhysPct ?? 0;
-  return baseAtk * (1 + localPhysPct);
+  return {
+    min: baseAtkMin * (1 + localPhysPct),
+    max: baseAtkMax * (1 + localPhysPct),
+  };
 }
 
-function getEquipmentValues(state: GameState, eq: Equipment): Partial<Record<AffixStat, number>> {
-  const values: Partial<Record<AffixStat, number>> = {};
+function getEquipmentValues(state: GameState, eq: Equipment): Record<string, number> {
+  const values: Record<string, number> = {};
   const baseMult = 1 + baseBonus(state, eq.slot);
   for (const [rawKey, rawValue] of Object.entries(eq.base)) {
-    const key = rawKey as AffixStat;
+    const key = rawKey;
     values[key] = (values[key] ?? 0) + (rawValue as number) * baseMult;
   }
   for (const affix of eq.affixes) {
-    values[affix.stat] = (values[affix.stat] ?? 0) + affix.value * affixBonusMultiplier(state, eq, affix);
+    const mult = affixBonusMultiplier(state, eq, affix);
+    if (affix.stat === "atk") {
+      values.atkMin = (values.atkMin ?? 0) + affix.value * mult;
+      values.atkMax = (values.atkMax ?? 0) + (affix.valueMax ?? affix.value) * mult;
+    } else {
+      values[affix.stat] = (values[affix.stat] ?? 0) + affix.value * mult;
+    }
   }
   return values;
 }
@@ -120,11 +139,12 @@ function getCoreValues(state: GameState, item: Item): Partial<Record<AffixStat, 
   return values;
 }
 
-function makeRow(key: EquipmentViewKey, value: number): EquipmentViewRow {
+function makeRow(key: EquipmentViewKey, value: number, valueMax?: number): EquipmentViewRow {
   return {
     key,
     label: key === "physicalDamage" ? "總物理傷害" : affixLabel(key),
     value,
+    valueMax,
     pct: key === "physicalDamage" ? false : isPctAffix(key),
   };
 }

@@ -88,7 +88,13 @@ const ui = new UI(root, canvas, {
   onRenameTab: (tab, name) => { renameProductionTab(state, tab, name); ui.refresh(state); },
   onRemoveTab: (tab) => { removeProductionTab(state, tab); ui.refresh(state); },
   onToggleLab: () => { toggleLabActive(state); ui.refresh(state); },
-  onEquip: (uid) => { equip(state, uid); ui.refresh(state); },
+  onEquip: (uid) => {
+    equip(state, uid);
+    if (!state.progress.equippedGuideSeen && (state.equipped.weapon || state.equipped.armor || state.equipped.accessory.some(Boolean))) {
+      state.progress.equippedGuideSeen = true;
+    }
+    ui.refresh(state);
+  },
   onUnequip: (slot) => { unequip(state, slot); ui.refresh(state); },
   onMoveAllToWarehouse: () => { for (const eq of [...state.equipmentInv]) toWarehouse(state, eq.uid); ui.refresh(state); },
   onToggleItemLock: (uid) => { toggleItemLock(state, uid); ui.refresh(state); },
@@ -134,6 +140,16 @@ const ui = new UI(root, canvas, {
     ui.refresh(state);
   },
   onResearchBase: (slot) => { researchBase(state, slot); ui.refresh(state); },
+  onSelectRune: (id) => {
+    state.runes.selected = state.runes.selected === id ? null : id;
+    ui.refresh(state);
+    save(state);
+  },
+  onClearRune: () => {
+    state.runes.selected = null;
+    ui.refresh(state);
+    save(state);
+  },
   onVictoryContinue: () => { state.reincarnation.victoryPending = false; ui.refresh(state); },
   onReincarnate: (buff) => {
     state = applyReincarnation(state, createInitialState(), buff);

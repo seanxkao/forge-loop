@@ -49,10 +49,11 @@ export class BattleRenderer {
   heroAttacked(dmg: number, crit: boolean): void {
     this.heroLunge = 1;
     this.enemyFlash = 1;
+    const jitterX = (Math.random() - 0.5) * 12;
     this.popups.push({
-      x: ENEMY_X,
+      x: ENEMY_X + jitterX,
       y: GROUND_Y - 60,
-      baseX: ENEMY_X,
+      baseX: ENEMY_X + jitterX,
       baseY: GROUND_Y - 60,
       driftX: 0,
       rise: 28,
@@ -67,10 +68,11 @@ export class BattleRenderer {
   enemyAttacked(dmg: number, blocked = false): void {
     this.enemyLunge = 1;
     this.heroFlash = 1;
+    const jitterX = (Math.random() - 0.5) * 12;
     this.popups.push({
-      x: HERO_X,
+      x: HERO_X + jitterX,
       y: GROUND_Y - 60,
-      baseX: HERO_X,
+      baseX: HERO_X + jitterX,
       baseY: GROUND_Y - 60,
       driftX: 0,
       rise: 28,

@@ -3,12 +3,18 @@ import { STAGES } from "./content.ts";
 import { deriveStats, attackInterval } from "./hero.ts";
 import { add } from "./inventory.ts";
 import { materialDropMultiplier } from "./reincarnation.ts";
+import { runeBlockReductionBonus } from "./runes.ts";
 import { coerceUnlockedStageId, unlockAfterStageClear } from "./unlocks.ts";
 import { grantLegendaryCoreReward } from "./legendaryCores.ts";
 
 function effectiveDefense(defense: number, penPct: number): number {
   const pen = Math.max(0, Math.min(1, penPct));
   return defense * (1 - pen);
+}
+
+function rollHeroAttack(stats: GameState["combat"] extends never ? never : { atkMin: number; atkMax: number }): number {
+  if (stats.atkMax <= stats.atkMin) return stats.atkMin;
+  return stats.atkMin + Math.random() * (stats.atkMax - stats.atkMin);
 }
 
 export interface CombatFx {
@@ -137,11 +143,11 @@ export function tickCombat(state: GameState, dt: number, fx: CombatFx): void {
   const enemy = currentEnemyDef(state);
 
   c.heroAtkTimer += dt;
-  const interval = attackInterval(stats);
+  const interval = attackInterval(state, stats);
   while (c.heroAtkTimer >= interval && c.enemyHp > 0) {
     c.heroAtkTimer -= interval;
     const crit = Math.random() < stats.critChance;
-    let atk = stats.atk;
+    let atk = rollHeroAttack(stats);
     if (crit) atk *= stats.critMult;
     const dmg = Math.max(1, Math.round(atk - effectiveDefense(enemy.def, stats.defPenPct)));
     c.enemyHp -= dmg;
@@ -158,7 +164,7 @@ export function tickCombat(state: GameState, dt: number, fx: CombatFx): void {
   while (c.enemyAtkTimer >= enemy.atkInterval && c.heroHp > 0) {
     c.enemyAtkTimer -= enemy.atkInterval;
     const blocked = stats.blockChance > 0 && Math.random() < stats.blockChance;
-    const reduction = Math.min(0.95, stats.dmgReductionPct + (blocked ? 0.25 : 0));
+    const reduction = Math.min(0.95, stats.dmgReductionPct + (blocked ? runeBlockReductionBonus(state) : 0));
     let base = enemy.atk * (1 - reduction);
     base -= effectiveDefense(stats.def, enemy.defPenPct);
     const edmg = Math.max(1, Math.round(base));

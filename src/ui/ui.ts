@@ -15,10 +15,12 @@ import type {
   FilterStat,
   ItemRarity,
   EquipSlotId,
+  RuneId,
 } from "../game/types.ts";
 import { MATERIALS, STAGES, RECIPES, CORE_RECIPE, PROD_RECIPES } from "../game/content.ts";
 import type { ProdRecipeDef } from "../game/content.ts";
 import { deriveStats, attackInterval } from "../game/hero.ts";
+import { RUNE_DEFS, runeAttackSpeedMore } from "../game/runes.ts";
 import { getEquipmentComparisonRows, getEquipmentSummaryRows, findEquippedInEquipSlot } from "../game/equipmentView.ts";
 import { affixLabel, isPctAffix } from "../game/affixMeta.ts";
 import { materialDropMultiplier, powerMultiplier, researchStageGrowthFactor } from "../game/reincarnation.ts";
@@ -67,6 +69,8 @@ export interface UICallbacks {
   onSocketCore(target: CoreTarget, uid: number, fromWarehouse: boolean): void;
   onUnsocketCore(target: CoreTarget): void;
   onResearchBase(slot: BaseResearchSlot): void;
+  onSelectRune(id: RuneId): void;
+  onClearRune(): void;
   onVictoryContinue(): void;
   onReincarnate(buff: ReincarnationBuff): void;
   onReset(): void;
@@ -80,7 +84,7 @@ export class UI {
   private activeTab: string = "prod"; // 右側抽屜永遠顯示一個分頁，預設生產
   private activeBagTab: "main" | "warehouse" = "main";
   private activeBagFilter: ItemSlot | "all" = "all";
-  private activeBattleInfoTab: "stats" | "equipped" = "equipped";
+  private activeBattleInfoTab: "stats" | "equipped" | "runes" = "equipped";
   private activeProdTab = 0;
   private currentState: GameState | null = null;
   private drawerEl!: HTMLElement;
@@ -93,6 +97,8 @@ export class UI {
   private stageModalEl!: HTMLElement;
   private settingsModalEl!: HTMLElement;
   private tabSettingsModalEl!: HTMLElement;
+  private toastEl!: HTMLElement;
+  private toastTimer: number | null = null;
   private stageModalOpen = false;
   private settingsModalOpen = false;
   private tabSettingsOpen = false;
@@ -102,6 +108,8 @@ export class UI {
   private bagFilterModalOpen = false;
   private bagFilterModalType: ItemSlot | null = null;
   private recipeTarget: { tab: number; row: number | null } | null = null;
+  private activeRecipeTab: "refine" | "equipment" | "machine" = "refine";
+  private flashRecipeWeapon = false;
   private coreTarget: CoreTarget | null = null;
   private panelEls: Record<string, HTMLElement> = {};
   private tabBtnEls: Record<string, HTMLElement> = {};
@@ -111,6 +119,7 @@ export class UI {
     battleOptions: HTMLElement;
     battleInfoTabs: HTMLElement;
     hero: HTMLElement;
+    runes: HTMLElement;
     equipped: HTMLElement;
     prodTabs: HTMLElement;
     prodRows: HTMLElement;
@@ -182,13 +191,14 @@ export class UI {
       <div class="main">
         <section class="panel main-battle">
           <div class="canvas-wrap">
-            <div class="battle-actions" data-zone="battleActions"></div>
-            <div class="battle-options" data-zone="battleOptions"></div>
-          </div>
-          <div class="battle-subtabs" data-zone="battleInfoTabs"></div>
-          <div class="hero" data-zone="hero"></div>
-          <div class="equipped" data-zone="equipped"></div>
-        </section>
+          <div class="battle-actions" data-zone="battleActions"></div>
+          <div class="battle-options" data-zone="battleOptions"></div>
+        </div>
+        <div class="battle-subtabs" data-zone="battleInfoTabs"></div>
+        <div class="hero" data-zone="hero"></div>
+        <div class="runes-panel" data-zone="runes"></div>
+        <div class="equipped" data-zone="equipped"></div>
+      </section>
         <aside class="drawer" data-drawer>
           <section class="panel-section" data-panel="prod">
             <h2>生產</h2>
@@ -221,6 +231,7 @@ export class UI {
           <div class="inventory" data-zone="inventory"></div>
         </div>
       </div>
+      <div class="ui-toast" data-ui-toast hidden></div>
     `;
     this.root.querySelector(".canvas-wrap")!.appendChild(this.canvas);
     this.tooltipEl = this.makeFloating("equip-tooltip", false);
@@ -232,6 +243,7 @@ export class UI {
     this.stageModalEl = this.makeModal(() => { this.stageModalOpen = false; this.renderStageModal(this.currentState); });
     this.settingsModalEl = this.makeModal(() => { this.settingsModalOpen = false; this.renderSettingsModal(); });
     this.tabSettingsModalEl = this.makeModal(() => { this.tabSettingsOpen = false; this.renderTabSettingsModal(this.currentState); });
+    this.toastEl = this.root.querySelector<HTMLElement>("[data-ui-toast]")!;
 
     const z = (n: string) => this.root.querySelector(`[data-zone="${n}"]`) as HTMLElement;
     this.els = {
@@ -239,6 +251,7 @@ export class UI {
       battleOptions: z("battleOptions"),
       battleInfoTabs: z("battleInfoTabs"),
       hero: z("hero"),
+      runes: z("runes"),
       equipped: z("equipped"),
       prodTabs: z("prodTabs"),
       prodRows: z("prodRows"),
@@ -288,6 +301,20 @@ export class UI {
       this.onClick(e as MouseEvent);
     });
     return el;
+  }
+
+  private showToast(text: string): void {
+    this.toastEl.textContent = text;
+    this.toastEl.hidden = false;
+    this.toastEl.classList.remove("show");
+    void this.toastEl.offsetWidth;
+    this.toastEl.classList.add("show");
+    if (this.toastTimer !== null) window.clearTimeout(this.toastTimer);
+    this.toastTimer = window.setTimeout(() => {
+      this.toastEl.classList.remove("show");
+      this.toastEl.hidden = true;
+      this.toastTimer = null;
+    }, 1200);
   }
 
   private setTab(tab: string): void {
@@ -382,7 +409,13 @@ export class UI {
         break;
       case "openSettings": this.settingsModalOpen = true; this.renderSettingsModal(); break;
       case "closeSettings": this.settingsModalOpen = false; this.renderSettingsModal(); break;
-      case "tab": this.setTab(arg); break;
+      case "tab":
+        this.setTab(arg);
+        if (arg === "bag" && this.currentState?.progress.craftedEquipmentOnce && !this.currentState.progress.bagGuideSeen) {
+          this.currentState.progress.bagGuideSeen = true;
+          this.renderBagTabs();
+        }
+        break;
       case "stage":
         this.stageModalOpen = false;
         this.renderStageModal(this.currentState);
@@ -417,7 +450,18 @@ export class UI {
         break;
       // ---- 生產：行 ----
       case "openRecipe":
+        if (t.dataset.row === undefined && (this.currentState?.spareAssemblers ?? 0) <= 0) {
+          this.showToast("組裝機不足");
+          break;
+        }
         this.recipeTarget = { tab: Number(t.dataset.tab), row: t.dataset.row !== undefined ? Number(t.dataset.row) : null };
+        this.activeRecipeTab = "equipment";
+        this.flashRecipeWeapon = !!(this.currentState && !this.currentState.progress.recipeGuideSeen);
+        this.renderRecipeModal(this.currentState);
+        if (this.currentState && !this.currentState.progress.recipeGuideSeen) this.currentState.progress.recipeGuideSeen = true;
+        break;
+      case "recipeTab":
+        this.activeRecipeTab = arg === "equipment" || arg === "machine" ? arg : "refine";
         this.renderRecipeModal(this.currentState);
         break;
       case "closeRecipe": this.recipeTarget = null; this.renderRecipeModal(this.currentState); break;
@@ -468,8 +512,14 @@ export class UI {
         if (this.currentState) { this.renderBagTabs(); this.renderBagFilter(this.currentState); this.renderEquipInv(this.currentState); this.renderWarehouse(this.currentState); }
         break;
       case "battleInfoTab":
-        this.activeBattleInfoTab = arg === "equipped" ? "equipped" : "stats";
-        if (this.currentState) { this.renderBattleInfoTabs(); this.renderHeroPanel(); this.renderEquipped(this.currentState); }
+        this.activeBattleInfoTab = arg === "equipped" || arg === "runes" ? arg : "stats";
+        if (this.currentState) { this.renderBattleInfoTabs(); this.renderHeroPanel(); this.renderEquipped(this.currentState); this.renderRunes(this.currentState); }
+        break;
+      case "selectRune":
+        this.cb.onSelectRune(arg as RuneId);
+        break;
+      case "clearRune":
+        this.cb.onClearRune();
         break;
       // ---- 過濾器（每行） ----
       case "openFilter":
@@ -579,6 +629,7 @@ export class UI {
     this.renderWarehouse(state);
     this.renderResearch();
     this.renderReincarnation(state);
+    this.renderRunes(state);
     this.renderStageModal(state);
     this.renderFilterModal(state);
     this.renderBagFilterModal(state);
@@ -588,6 +639,7 @@ export class UI {
     this.renderCoreModal(state);
     this.renderVictoryModal(state);
     const reincTab = this.root.querySelector<HTMLElement>("[data-reinc-tab]");
+    this.tabBtnEls.bag?.classList.toggle("flash-guide", state.progress.craftedEquipmentOnce && !state.progress.bagGuideSeen);
     if (reincTab) reincTab.hidden = !state.reincarnation.gameCleared && state.reincarnation.cycle <= 1;
     if (this.activeTab === "reincarnation" && !state.reincarnation.gameCleared && state.reincarnation.cycle <= 1) this.setTab("prod");
     this.tick(state);
@@ -604,13 +656,14 @@ export class UI {
 
   tick(state: GameState): void {
     this.currentState = state;
+    this.tabBtnEls.bag?.classList.toggle("flash-guide", state.progress.craftedEquipmentOnce && !state.progress.bagGuideSeen);
     const s = deriveStats(state);
     const setHV = (k: string, v: string) => { const el = this.heroVals[k]; if (el) el.textContent = v; };
     setHV("hp", `${Math.ceil(Math.max(0, state.combat.heroHp))} / ${Math.round(s.hp)}`);
-    setHV("atk", `${Math.round(s.atk)}`);
+    setHV("atk", formatViewValue(s.atkMin, false, s.atkMax));
     setHV("def", `${Math.round(s.def)}`);
-    const spdPct = Math.round(((1 + s.haste) * (1 + s.localHastePct) - 1) * 100);
-    setHV("spd", `+${spdPct}% (${(1 / attackInterval(s)).toFixed(2)})`);
+    const spdPct = Math.round((((1 + s.haste) * (1 + s.localHastePct) * runeAttackSpeedMore(state, s.hp)) - 1) * 100);
+    setHV("spd", `+${spdPct}% (${(1 / attackInterval(state, s)).toFixed(2)})`);
     setHV("crit", `${Math.round(s.critChance * 100)}%`);
     setHV("critm", `${Math.round(s.critMult * 100)}%`);
     setHV("regen", `${Math.round(s.hpRegen)}/s`);
@@ -740,6 +793,7 @@ export class UI {
       </div>`;
     this.heroVals = {};
     this.els.hero.querySelectorAll<HTMLElement>("[data-hv]").forEach((el) => { this.heroVals[el.dataset.hv!] = el; });
+    if (this.currentState) this.renderRunes(this.currentState);
     this.renderHeroPanel();
   }
 
@@ -747,16 +801,48 @@ export class UI {
     this.els.battleInfoTabs.innerHTML = `
       <div class="battle-subtab-row">
         <button class="tab-btn${this.activeBattleInfoTab === "equipped" ? " sel" : ""}" data-act="battleInfoTab" data-arg="equipped">裝備</button>
+        <button class="tab-btn${this.activeBattleInfoTab === "runes" ? " sel" : ""}" data-act="battleInfoTab" data-arg="runes">符文</button>
         <button class="tab-btn${this.activeBattleInfoTab === "stats" ? " sel" : ""}" data-act="battleInfoTab" data-arg="stats">角色數據</button>
       </div>`;
   }
 
   private renderHeroPanel(): void {
     const showStats = this.activeBattleInfoTab === "stats";
+    const showRunes = this.activeBattleInfoTab === "runes";
     this.els.hero.hidden = !showStats;
     this.els.hero.style.display = showStats ? "" : "none";
-    this.els.equipped.hidden = showStats;
-    this.els.equipped.style.display = showStats ? "none" : "flex";
+    this.els.runes.hidden = !showRunes;
+    this.els.runes.style.display = showRunes ? "" : "none";
+    this.els.equipped.hidden = showStats || showRunes;
+    this.els.equipped.style.display = showStats || showRunes ? "none" : "flex";
+  }
+
+  private renderRunes(state: GameState): void {
+    const selected = state.runes.selected;
+    const cells = state.runes.owned
+      .map((id) => {
+        const rune = RUNE_DEFS[id];
+        const isSelected = selected === id;
+        return `<button class="rune-cell${isSelected ? " sel" : ""}" data-act="selectRune" data-arg="${id}">
+          <span class="rune-cell__icon">${rune.icon}</span>
+          <span class="rune-cell__name">${rune.name}</span>
+          <span class="rune-cell__summary">${rune.summary}</span>
+          <span class="rune-cell__drawback">${rune.drawback}</span>
+          <span class="rune-cell__state">${isSelected ? "已配置" : "點擊配置"}</span>
+        </button>`;
+      })
+      .join("");
+    const socket = selected
+      ? `<button class="rune-socket rune-socket--filled rune-socket--button" data-act="clearRune" title="卸下符文"><span class="rune-socket__icon">${RUNE_DEFS[selected].icon}</span></button>`
+      : `<div class="rune-socket"><span class="rune-socket__icon">□</span></div>`;
+    this.els.runes.innerHTML = `
+      <div class="rune-layout">
+        <div class="rune-current">
+          <div class="rune-current__label">當前符文</div>
+          ${socket}
+        </div>
+        <div class="rune-grid">${cells}</div>
+      </div>`;
   }
 
   private buildInventory(): void {
@@ -980,23 +1066,45 @@ export class UI {
 
   private renderRecipeModal(state: GameState | null): void {
     if (!state || !this.recipeTarget) { this.recipeModalEl.hidden = true; this.recipeModalEl.innerHTML = ""; return; }
-    const cells = Object.values(PROD_RECIPES).map((def) => {
-      const unlocked = isRecipeUnlocked(state, def.id);
-      const lockNote = def.unlock === "zone1" ? "通關 1-4 解鎖" : def.unlock === "core" ? "通關 2-4 解鎖" : "";
-      return `<button class="recipe-cell${unlocked ? "" : " locked"}" ${unlocked ? `data-act="pickRecipe" data-arg="${def.id}"` : ""}>
+    const recipeGroups: Record< "equipment" | "refine" | "machine", ProdRecipeDef[]> = {
+      refine: [],
+      equipment: [],
+      machine: [],
+    };
+    for (const def of Object.values(PROD_RECIPES)) {
+      if (!isRecipeUnlocked(state, def.id)) continue;
+      if (def.kind === "refine") recipeGroups.refine.push(def);
+      else if (def.kind === "equipment") recipeGroups.equipment.push(def);
+      else if (def.kind === "assembler" || def.kind === "lab") recipeGroups.machine.push(def);
+    }
+    const tabs: Array<{ key: "equipment" | "refine" | "machine"; label: string }> = [
+      { key: "equipment", label: "裝備" },
+      { key: "refine", label: "精煉" },
+      { key: "machine", label: "機器" },
+    ];
+    const activeTab = tabs.find((tab) => recipeGroups[tab.key].length > 0 && tab.key === this.activeRecipeTab)?.key
+      ?? tabs.find((tab) => recipeGroups[tab.key].length > 0)?.key
+      ?? "refine";
+    this.activeRecipeTab = activeTab;
+    const cells = recipeGroups[activeTab]
+      .map((def) => `<button class="recipe-cell${this.flashRecipeWeapon && def.id === "weapon" ? " flash-guide" : ""}" data-act="pickRecipe" data-arg="${def.id}">
         <span class="recipe-cell__icon">${def.icon}</span>
         <span class="recipe-cell__name">${def.name}</span>
         <span class="recipe-cell__summary">${recipeSummary(def)}</span>
-        ${unlocked ? "" : `<span class="recipe-cell__lock">🔒 ${lockNote}</span>`}
-      </button>`;
-    }).join("");
+      </button>`)
+      .join("");
     this.recipeModalEl.innerHTML = `
       <div class="modal-card modal-card--recipe" role="dialog" aria-modal="true" aria-label="選擇配方">
         <div class="modal-head"><h3>${this.recipeTarget.row === null ? "放置組裝機 — 選擇配方" : "變更配方"}</h3><button class="modal-close" data-act="closeRecipe">關閉</button></div>
         ${this.recipeTarget.row === null && state.spareAssemblers <= 0 ? `<p class="hint">沒有庫存組裝機了——先用「組裝機」配方生產更多。</p>` : ""}
+        <div class="recipe-subtabs">
+          ${tabs.map((tab) => `<button class="tab-btn recipe-subtab${activeTab === tab.key ? " sel" : ""}" data-act="recipeTab" data-arg="${tab.key}"${recipeGroups[tab.key].length > 0 ? "" : " disabled"}>${tab.label}</button>`).join("")}
+        </div>
+        ${cells ? "" : `<p class="empty-note">此分類目前沒有已解鎖配方。</p>`}
         <div class="recipe-grid">${cells}</div>
       </div>`;
     this.recipeModalEl.hidden = false;
+    this.flashRecipeWeapon = false;
   }
 
   private renderBagTabs(): void {
@@ -1115,12 +1223,20 @@ export class UI {
     const filteredItems = state.equipmentInv.filter((item) => this.matchesBagFilter(item));
     if (state.equipmentInv.length === 0) { this.els.equipInv.innerHTML = `<p class="empty-note">尚無裝備，去生產線做吧。</p>`; return; }
     const head = `<div class="inv-head"><span>${filteredItems.length} / ${state.equipmentInv.length} 件</span></div>`;
-    const items = filteredItems.slice(0, INV_RENDER_CAP).map((eq) => `<div class="inv-item ${rarityClassName(eq.rarity)}" data-uid="${eq.uid}" data-bag="main" data-eqtip="main:${eq.uid}">
-        <button class="item-lock${eq.locked ? " locked" : ""}" data-act="toggleLock" data-arg="${eq.uid}" title="${eq.locked ? "解鎖" : "上鎖"}">${eq.locked ? "🔒" : "🔓"}</button>
+    let flashedEquipButton = false;
+    const items = filteredItems.slice(0, INV_RENDER_CAP).map((eq) => {
+      const shouldFlashEquip = eq.kind === "equipment"
+        && state.progress.craftedEquipmentOnce
+        && !state.progress.equippedGuideSeen
+        && !flashedEquipButton;
+      if (shouldFlashEquip) flashedEquipButton = true;
+      return `<div class="inv-item ${rarityClassName(eq.rarity)}" data-uid="${eq.uid}" data-bag="main" data-eqtip="main:${eq.uid}">
+        <button class="item-lock${eq.locked ? " locked" : ""}" data-act="toggleLock" data-arg="${eq.uid}" title="${eq.locked ? "解鎖" : "上鎖"}">${eq.locked ? "鎖" : "開"}</button>
         <span class="ii-name">${eq.icon} ${eq.name}${eq.kind === "core" ? " <span class=\"slot-tag\">核心</span>" : ""} <span class="ii-cnt">${countVariableAffixes(eq)}詞</span></span>
         <span class="ii-stats">${describeEquip(eq, state, false)}</span>
-        <span class="ii-btns">${eq.kind === "equipment" ? `<button data-act="equip" data-arg="${eq.uid}">裝備</button>` : ""}<button class="ghost" data-act="toWare" data-arg="${eq.uid}">倉庫</button></span>
-      </div>`).join("");
+        <span class="ii-btns">${eq.kind === "equipment" ? `<button class="${shouldFlashEquip ? "flash-guide" : ""}" data-act="equip" data-arg="${eq.uid}">裝備</button>` : ""}<button class="ghost" data-act="toWare" data-arg="${eq.uid}">倉庫</button></span>
+      </div>`;
+    }).join("");
     const more = filteredItems.length - INV_RENDER_CAP;
     const moreNote = more > 0 ? `<p class="empty-note">…還有 ${more} 件（已隱藏以維持效能）</p>` : "";
     const emptyFiltered = filteredItems.length === 0 ? `<p class="empty-note">目前篩選下沒有道具。</p>` : "";
@@ -1340,13 +1456,21 @@ function describeStats(s: Partial<StatBlock>): string {
 /** 數值一律計入研究加成（生效值）；showBonus=false 時僅省略 (+X%) 標與武器摘要，用於精簡的裝備面板。 */
 function describeEquip(eq: Item, state: GameState, showBonus = true): string {
   const summary = showBonus && eq.kind === "equipment" && eq.slot === "weapon"
-    ? getEquipmentSummaryRows(state, eq).slice(0, 1).map((row) => `<span class="eq-summary-line">${row.label} ${formatViewValue(row.value, row.pct)}</span>`).join("<br>")
+    ? getEquipmentSummaryRows(state, eq).slice(0, 1).map((row) => `<span class="eq-summary-line">${row.label} ${formatViewValue(row.value, row.pct, row.valueMax)}</span>`).join("<br>")
     : "";
   const base = eq.kind === "equipment"
     ? (() => {
         const baseMult = 1 + baseBonus(state, eq.slot);
         const baseTag = showBonus && baseMult > 1 ? ` <span class="aff-buff">(+${Math.round((baseMult - 1) * 100)}%)</span>` : "";
-        const baseStr = Object.entries(eq.base).map(([k, v]) => statLabel(k, (v as number) * baseMult)).join(" ");
+        const atkMin = typeof eq.base.atkMin === "number" ? eq.base.atkMin * baseMult : null;
+        const atkMax = typeof eq.base.atkMax === "number" ? eq.base.atkMax * baseMult : null;
+        const rows: string[] = [];
+        if (atkMin !== null && atkMax !== null) rows.push(statLabel("atk", atkMin, atkMax));
+        for (const [k, v] of Object.entries(eq.base)) {
+          if (k === "atkMin" || k === "atkMax") continue;
+          rows.push(statLabel(k, (v as number) * baseMult));
+        }
+        const baseStr = rows.join(" ");
         return baseStr ? baseStr + baseTag : "";
       })()
     : "";
@@ -1355,7 +1479,10 @@ function describeEquip(eq: Item, state: GameState, showBonus = true): string {
     const bonus = mult - 1;
     const buff = showBonus && bonus > 0 ? ` <span class="aff-buff">(+${Math.round(bonus * 100)}%)</span>` : "";
     const eff = a.value * mult;
-    const val = a.pct ? (a.stat === "upgradeTierChance" ? formatSpecialPct(eff, 2) : Math.round(eff * 100) + "%") : fmtNum(eff);
+    const effMax = (a.valueMax ?? a.value) * mult;
+    const val = a.pct
+      ? (a.stat === "upgradeTierChance" ? formatSpecialPct(eff, 2) : Math.round(eff * 100) + "%")
+      : a.stat === "atk" ? `${fmtNum(eff)}~${fmtNum(effMax)}` : fmtNum(eff);
     const fixed = a.fixed ? `<span class="aff-tier aff-tier--fixed">固定</span>` : "";
     return `<div class="aff-line"><span class="aff-line__main">+${val} ${a.label}${fixed}${buff}</span><span class="aff-tier">T${a.tier}</span></div>`;
   });
@@ -1366,8 +1493,8 @@ function describeEquip(eq: Item, state: GameState, showBonus = true): string {
 function renderTooltipRow(row: ReturnType<typeof getEquipmentComparisonRows>[number]): string {
   const delta = row.delta ?? 0;
   const deltaClass = delta > 0 ? "up" : delta < 0 ? "down" : "same";
-  const deltaText = delta === 0 ? "±0" : `${delta > 0 ? "+" : ""}${formatViewValue(delta, row.pct)}`;
-  return `<div class="equip-tooltip__row"><span>${row.label}</span><span class="equip-tooltip__value">${formatViewValue(row.value, row.pct)}</span><span class="equip-tooltip__delta ${deltaClass}">${deltaText}</span></div>`;
+  const deltaText = delta === 0 && (row.deltaMax ?? delta) === 0 ? "±0" : `${delta > 0 ? "+" : ""}${formatViewValue(delta, row.pct, row.deltaMax)}`;
+  return `<div class="equip-tooltip__row"><span>${row.label}</span><span class="equip-tooltip__value">${formatViewValue(row.value, row.pct, row.valueMax)}</span><span class="equip-tooltip__delta ${deltaClass}">${deltaText}</span></div>`;
 }
 
 function findItemByUid(state: GameState, uid: number): Item | null {
@@ -1384,12 +1511,16 @@ function findItemByUid(state: GameState, uid: number): Item | null {
   return state.lab.cores.find((item) => item?.uid === uid) ?? null;
 }
 
-function formatViewValue(value: number, pct: boolean): string {
-  return pct ? `${Math.round(value * 100)}%` : fmtNum(value);
+function formatViewValue(value: number, pct: boolean, valueMax?: number): string {
+  if (pct) return `${Math.round(value * 100)}%`;
+  if (typeof valueMax === "number" && Math.abs(valueMax - value) > 1e-9) return `${fmtNum(value)}~${fmtNum(valueMax)}`;
+  return fmtNum(value);
 }
 
-function statLabel(k: string, v: number): string {
-  const val = isPctAffix(k as never) ? (k === "upgradeTierChance" ? formatSpecialPct(v, 2) : `${Math.round(v * 100)}%`) : fmtNum(v);
+function statLabel(k: string, v: number, vMax?: number): string {
+  const val = isPctAffix(k as never)
+    ? (k === "upgradeTierChance" ? formatSpecialPct(v, 2) : `${Math.round(v * 100)}%`)
+    : typeof vMax === "number" && Math.abs(vMax - v) > 1e-9 ? `${fmtNum(v)}~${fmtNum(vMax)}` : fmtNum(v);
   return `+${val} ${affixLabel(k as never)}`;
 }
 

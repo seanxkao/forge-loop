@@ -29,5 +29,11 @@ export function applyReincarnation(
   next.reincarnation.cycle = state.reincarnation.cycle + 1;
   next.reincarnation.buffs = { ...state.reincarnation.buffs };
   next.reincarnation.buffs[buff] += 1;
+  next.runes.owned = [...freshState.runes.owned];
+  next.runes.selected = freshState.runes.selected;
+  next.progress.recipeGuideSeen = state.progress.recipeGuideSeen;
+  next.progress.craftedEquipmentOnce = state.progress.craftedEquipmentOnce;
+  next.progress.bagGuideSeen = state.progress.bagGuideSeen;
+  next.progress.equippedGuideSeen = state.progress.equippedGuideSeen;
   return next;
 }

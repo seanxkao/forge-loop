@@ -42,6 +42,18 @@ function rollTier(def: AffixDef, rng: () => number = Math.random, luckyTierChanc
 
 function rollOneAffix(def: AffixDef, rng: () => number = Math.random, luckyTierChance = 0): Affix {
   const t = rollTier(def, rng, luckyTierChance);
+  if (def.stat === "atk") {
+    return {
+      stat: def.stat,
+      value: t.min,
+      valueMax: t.max,
+      label: def.label,
+      pct: def.pct,
+      tier: t.tier,
+      tags: def.tags,
+      fixed: def.fixed,
+    };
+  }
   return {
     stat: def.stat,
     value: rollTierValue(t.min, t.max, !!def.pct, rng),
@@ -100,6 +112,7 @@ export function emitEquipment(
     affixes: rollAffixes(pool, affixCount, effects.upgradeTierChance, Math.random, effects.luckyTierChance),
   };
   route(state, eq, filter);
+  state.progress.craftedEquipmentOnce = true;
   return eq;
 }
 

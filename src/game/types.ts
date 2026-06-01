@@ -2,6 +2,7 @@ export type Slot = "weapon" | "armor" | "accessory";
 export type ItemSlot = Slot | "core";
 export type BaseResearchSlot = Slot | "core";
 export type EquipSlotId = "weapon" | "armor" | "accessory1" | "accessory2";
+export type RuneId = "berserk_haste" | "vital_regen";
 export type ItemRarity = "normal" | "magic" | "rare" | "legendary";
 export type ItemKind = "equipment" | "core";
 export type AffixTag = "physical" | "crit" | "speed" | "life" | "defense" | "craft";
@@ -9,7 +10,8 @@ export type MachineTargetKind = "row" | "lab";
 
 export interface StatBlock {
   hp: number;
-  atk: number;
+  atkMin: number;
+  atkMax: number;
   localPhysPct: number;
   localHastePct: number;
   def: number;
@@ -26,6 +28,7 @@ export type PartialStats = Partial<StatBlock>;
 
 export type AffixStat =
   | keyof StatBlock
+  | "atk"
   | "materialDropPct"
   | "productivity"
   | "machineSpeedPct"
@@ -143,6 +146,7 @@ export type FilterEntry =
 export interface Affix {
   stat: AffixStat;
   value: number;
+  valueMax?: number;
   label: string;
   pct?: boolean;
   tier: number;
@@ -243,11 +247,20 @@ export interface ReincarnationState {
   gameCleared: boolean;
 }
 
+export interface RuneState {
+  owned: RuneId[];
+  selected: RuneId | null;
+}
+
 export interface ProgressState {
   unlockedStageCount: number;
   coreUnlocked: boolean;
   autoAdvanceNext: boolean;
   placedFirstMachine: boolean;
+  recipeGuideSeen: boolean;
+  craftedEquipmentOnce: boolean;
+  bagGuideSeen: boolean;
+  equippedGuideSeen: boolean;
   grantedLegendaryCore24: boolean;
   grantedLegendaryCore44: boolean;
 }
@@ -271,6 +284,7 @@ export interface GameState {
   research: { points: Record<string, number>; stages: Record<string, number> };
   baseResearch: Record<BaseResearchSlot, number>;
   baseResearchPoints: Record<BaseResearchSlot, number>;
+  runes: RuneState;
   reincarnation: ReincarnationState;
   progress: ProgressState;
   nextEquipId: number;

@@ -102,6 +102,28 @@ body {
   margin-left: 8px;
 }
 
+.ui-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 118px;
+  transform: translate(-50%, 14px);
+  padding: 10px 16px;
+  border-radius: 999px;
+  background: rgba(26, 23, 38, 0.96);
+  border: 1px solid var(--line);
+  color: var(--text);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.32);
+  opacity: 0;
+  pointer-events: none;
+  z-index: 40;
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+.ui-toast.show {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
 .main {
   display: flex;
   flex: 1 1 auto;
@@ -346,6 +368,13 @@ body {
   overflow-y: auto;
   padding-right: 2px;
 }
+.runes-panel {
+  margin-top: 12px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 2px;
+}
 .battle-subtabs {
   margin-top: 12px;
 }
@@ -367,6 +396,119 @@ body {
 }
 .stat-grid b {
   text-align: left;
+}
+.rune-layout {
+  display: grid;
+  grid-template-columns: 112px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+.rune-current {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.rune-current__label {
+  color: var(--muted);
+  font-size: 12px;
+}
+.rune-socket {
+  aspect-ratio: 1;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--panel2);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.02);
+}
+.rune-socket--button {
+  cursor: pointer;
+}
+.rune-socket--button:hover {
+  border-color: var(--accent);
+}
+.rune-socket--filled {
+  border-color: color-mix(in srgb, #7c5cff 58%, var(--line));
+  background: radial-gradient(circle at 30% 25%, rgba(124, 92, 255, 0.28), rgba(34, 29, 49, 0.95));
+  box-shadow: inset 0 0 0 1px rgba(124, 92, 255, 0.35);
+}
+.rune-socket__icon {
+  font-size: 44px;
+  line-height: 1;
+}
+.rune-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.rune-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  min-height: 168px;
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--panel2);
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+}
+.rune-cell:hover {
+  border-color: var(--accent);
+}
+.rune-cell.sel {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 18%, var(--panel2));
+  box-shadow: inset 0 0 0 1px rgba(124, 92, 255, 0.35);
+}
+.rune-socket--filled .rune-socket__icon,
+.rune-cell.sel .rune-cell__icon {
+  box-shadow: 0 0 18px rgba(124, 92, 255, 0.32);
+}
+.rune-socket--filled .rune-socket__icon {
+  color: #fff;
+}
+.rune-cell__icon {
+  width: 52px;
+  aspect-ratio: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line));
+  background: rgba(124, 92, 255, 0.1);
+  font-size: 28px;
+  line-height: 1;
+}
+.rune-cell__name {
+  font-weight: 700;
+}
+.rune-cell__summary,
+.rune-cell__drawback {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.rune-cell__state {
+  margin-top: auto;
+  color: var(--gold);
+  font-size: 12px;
+}
+
+@media (max-width: 720px) {
+  .rune-layout {
+    grid-template-columns: 1fr;
+  }
+  .rune-current {
+    max-width: 112px;
+  }
+  .rune-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .equipped {
@@ -1622,6 +1764,20 @@ body {
     box-shadow: 0 0 10px var(--gold);
   }
 }
+.flash-guide {
+  animation: guideflash 1s ease-in-out infinite;
+}
+@keyframes guideflash {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(255, 210, 63, 0);
+    border-color: var(--line);
+  }
+  50% {
+    box-shadow: 0 0 0 3px rgba(255, 210, 63, 0.35);
+    border-color: var(--gold);
+  }
+}
 .rtrack.flash {
   animation: rtflash 0.35s ease-in-out 2;
   border-color: var(--gold);
@@ -1807,6 +1963,19 @@ body {
 }
 
 /* 配方選擇視窗 grid */
+.recipe-subtabs {
+  display: flex;
+  gap: 6px;
+  margin: 10px 0 12px;
+  flex-wrap: wrap;
+}
+.recipe-subtab[disabled] {
+  opacity: 0.4;
+  cursor: default;
+}
+.recipe-subtab[disabled]:hover {
+  border-color: var(--line);
+}
 .recipe-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

@@ -3,7 +3,8 @@ import type { StatBlock } from "./types.ts";
 /** 英雄裸值（無裝備，極弱；待平衡）。 */
 export const HERO_BASE: StatBlock = {
   hp: 50,
-  atk: 7,
+  atkMin: 7,
+  atkMax: 7,
   localPhysPct: 0,
   localHastePct: 0,
   def: 0,
