@@ -56,13 +56,19 @@ body {
   font-weight: normal;
 }
 
-.btn-reset {
+.btn-reset,
+.btn-settings {
   background: transparent;
   color: var(--muted);
   border: 1px solid var(--line);
   border-radius: 6px;
   padding: 6px 10px;
   cursor: pointer;
+}
+.btn-reset:hover,
+.btn-settings:hover {
+  color: var(--text);
+  border-color: var(--accent);
 }
 .btn-reset:hover {
   color: var(--bad);
@@ -91,7 +97,8 @@ body {
   border-color: var(--accent);
   color: #fff;
 }
-.tabrail .btn-reset {
+.tabrail .btn-reset,
+.tabrail .btn-settings {
   margin-left: 8px;
 }
 
@@ -392,6 +399,12 @@ body {
 .core-slot.rarity-rare {
   background: color-mix(in srgb, #d6b11f 28%, var(--panel2));
   border-color: color-mix(in srgb, #ffe27a 62%, var(--line));
+}
+.eq-slot.rarity-legendary,
+.inv-item.rarity-legendary,
+.core-slot.rarity-legendary {
+  background: color-mix(in srgb, #d97a18 32%, var(--panel2));
+  border-color: color-mix(in srgb, #ffbf69 68%, var(--line));
 }
 .eq-slot.empty {
   color: var(--muted);
@@ -809,31 +822,74 @@ body {
 /* 裝備庫存 / 倉庫 */
 .equip-inv,
 .warehouse {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 6px;
   flex: 1 1 auto;
   min-height: 0;
   max-height: none;
   overflow-y: auto;
+  align-content: start;
 }
 .inv-item {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1.5fr) auto;
+  align-items: start;
   gap: 4px;
   background: var(--panel2);
   border: 1px solid var(--line);
   border-radius: 6px;
   padding: 6px 8px;
   font-size: 12px;
+  position: relative;
+  height: 248px;
+  min-height: 248px;
+  overflow: hidden;
+}
+.inv-head,
+.equip-inv > .empty-note,
+.warehouse > .empty-note {
+  grid-column: 1 / -1;
+}
+.item-lock {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, #7a7a7a 46%, var(--panel));
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  cursor: pointer;
+  padding: 0;
+  font-size: 12px;
+  z-index: 1;
+  color: var(--text);
+}
+.item-lock.locked {
+  background: color-mix(in srgb, var(--good) 58%, var(--panel));
+  border-color: color-mix(in srgb, var(--good) 72%, #fff);
+  color: #fff;
+}
+.item-lock:hover {
+  border-color: var(--accent);
+  color: var(--text);
 }
 .ii-name {
   font-weight: 600;
+  padding-right: 28px;
+  line-height: 1.35;
 }
 .ii-stats {
   color: var(--muted);
   line-height: 1.5;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 8;
+  -webkit-box-orient: vertical;
 }
 .eq-summary-line {
   display: inline-block;
@@ -845,6 +901,9 @@ body {
   display: flex;
   justify-content: flex-end;
   gap: 4px;
+  align-self: end;
+  margin-top: auto;
+  flex-wrap: wrap;
 }
 .inv-item button {
   background: var(--accent);
@@ -1072,6 +1131,10 @@ body {
   .machines[data-zone="crafters"] {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+  .equip-inv,
+  .warehouse {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
   .craft-row .cb-acts {
     width: 100%;
     margin-left: 0;
@@ -1081,6 +1144,10 @@ body {
 @media (max-width: 520px) {
   .machines[data-zone="machines"],
   .machines[data-zone="crafters"] {
+    grid-template-columns: repeat(1, minmax(0, 1fr));
+  }
+  .equip-inv,
+  .warehouse {
     grid-template-columns: repeat(1, minmax(0, 1fr));
   }
   .mc-main-btn {
@@ -1328,6 +1395,16 @@ body {
 .fs-quick-btn:hover {
   background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
+.fs-estimate {
+  margin-top: 8px;
+  padding: 8px 10px;
+  background: var(--panel2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
 .btn-sweep {
   margin-top: 6px;
   width: 100%;
@@ -1367,6 +1444,17 @@ body {
 }
 .modal-card--stage {
   width: min(720px, calc(100vw - 32px));
+}
+.modal-card--settings {
+  width: min(420px, calc(100vw - 32px));
+}
+.settings-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.settings-list .btn-reset {
+  align-self: flex-start;
 }
 .modal-head {
   display: flex;

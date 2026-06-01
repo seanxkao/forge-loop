@@ -17,6 +17,7 @@ export const HERO_BASE: StatBlock = {
   hp: 50,
   atk: 7,
   localPhysPct: 0,
+  localHastePct: 0,
   def: 0,
   critChance: 0.05,
   critMult: 1.5,
@@ -113,7 +114,7 @@ export const RECIPES: Record<string, RecipeDef> = {
     icon: "🛡️",
     slot: "armor",
     cost: { leather: 4 },
-    base: { hp: 40, def: 3 },
+    base: { hp: 80, def: 3 },
     affixPool: affixPool("armor"),
   },
   accessory: {

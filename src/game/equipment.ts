@@ -58,7 +58,10 @@ export function unequip(state: GameState, slot: EquipSlotId): void {
 function removeFromBags(state: GameState, uid: number): Item | null {
   for (const bag of [state.equipmentInv, state.warehouseInv]) {
     const idx = bag.findIndex((item) => item.uid === uid);
-    if (idx >= 0) return bag.splice(idx, 1)[0];
+    if (idx >= 0) {
+      if (bag[idx].locked) return null;
+      return bag.splice(idx, 1)[0];
+    }
   }
   return null;
 }
@@ -108,4 +111,14 @@ export function unsocketAllCoresIntoInventory(state: GameState): void {
   unsocketCore(state, { kind: "coreCrafter", id: CORE_RECIPE.id }, 1);
   unsocketCore(state, { kind: "dismantler", id: "dismantler" }, 0);
   unsocketCore(state, { kind: "dismantler", id: "dismantler" }, 1);
+}
+
+export function toggleItemLock(state: GameState, uid: number): void {
+  for (const bag of [state.equipmentInv, state.warehouseInv]) {
+    const item = bag.find((entry) => entry.uid === uid);
+    if (item) {
+      item.locked = !item.locked;
+      return;
+    }
+  }
 }

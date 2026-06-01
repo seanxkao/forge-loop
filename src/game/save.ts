@@ -8,6 +8,8 @@ import { affixLabel } from "./affixMeta.ts";
 const KEY = "forge-loop-save";
 const LEGACY_BLOCK_STAT = "critDmgTakenReductionPct";
 const BLOCK_STAT = "blockChance";
+const LEGACY_WEAPON_HASTE_STAT = "haste";
+const WEAPON_HASTE_STAT = "localHastePct";
 
 function equippedItems(state: GameState): Item[] {
   return [
@@ -86,6 +88,21 @@ function normalizeLegacyRarity(state: GameState): void {
   state.coreCrafter.cores.forEach(normalizeItem);
 }
 
+function normalizeLegacyLocks(state: GameState): void {
+  const normalizeItem = (item: Item | null | undefined) => {
+    if (!item) return;
+    item.locked = !!item.locked;
+  };
+
+  state.equipmentInv.forEach(normalizeItem);
+  state.warehouseInv.forEach(normalizeItem);
+  equippedItems(state).forEach(normalizeItem);
+  Object.values(state.machines).forEach((machine) => machine.cores.forEach(normalizeItem));
+  Object.values(state.crafters).forEach((crafter) => crafter.cores.forEach(normalizeItem));
+  state.dismantler.cores.forEach(normalizeItem);
+  state.coreCrafter.cores.forEach(normalizeItem);
+}
+
 function normalizeLegacyAccessorySlots(state: GameState): void {
   const equipped = state.equipped as GameState["equipped"] | {
     weapon: Item | null;
@@ -107,10 +124,18 @@ function normalizeLegacyFilters(state: GameState): void {
   }
 }
 
+function normalizeLegacyLegendaryFlags(state: GameState): void {
+  state.progress.grantedLegendaryCore24 = !!state.progress.grantedLegendaryCore24;
+  state.progress.grantedLegendaryCore34 = !!state.progress.grantedLegendaryCore34;
+}
+
 function normalizeLegacyAffixLabels(state: GameState): void {
   const normalizeItem = (item: Item | null | undefined) => {
     if (!item) return;
     for (const affix of item.affixes) {
+      if (item.kind === "equipment" && item.slot === "weapon" && affix.stat === LEGACY_WEAPON_HASTE_STAT) {
+        affix.stat = WEAPON_HASTE_STAT;
+      }
       affix.label = affixLabel(affix.stat);
     }
   };
@@ -122,6 +147,14 @@ function normalizeLegacyAffixLabels(state: GameState): void {
   Object.values(state.crafters).forEach((crafter) => crafter.cores.forEach(normalizeItem));
   state.dismantler.cores.forEach(normalizeItem);
   state.coreCrafter.cores.forEach(normalizeItem);
+}
+
+function normalizeLegacyWeaponHasteFilters(state: GameState): void {
+  for (const entry of state.filters.weapon) {
+    if (entry.kind === "affixTier" && entry.stat === LEGACY_WEAPON_HASTE_STAT) {
+      entry.stat = WEAPON_HASTE_STAT;
+    }
+  }
 }
 
 /** 以「現行 schema（預設值）」為形狀，把舊存檔深層合併進來。
@@ -156,8 +189,11 @@ export function load(): GameState {
     normalizeLegacyAccessorySlots(migrated);
     normalizeLegacyItemKinds(migrated);
     normalizeLegacyRarity(migrated);
+    normalizeLegacyLocks(migrated);
     normalizeLegacyFilters(migrated);
+    normalizeLegacyLegendaryFlags(migrated);
     normalizeLegacyAffixLabels(migrated);
+    normalizeLegacyWeaponHasteFilters(migrated);
     normalizeLegacyBlockStat(migrated);
     normalizeUnlockProgress(migrated);
     migrated.version = SAVE_VERSION;

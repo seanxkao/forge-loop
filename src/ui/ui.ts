@@ -22,14 +22,8 @@ import { affixBonusMultiplier, countVariableAffixes } from "../game/itemAffixes.
 import type { BaseResearchSlot, FilterEntry, ItemRarity } from "../game/types.ts";
 import type { EquipSlotId } from "../game/types.ts";
 import { findEquippedInEquipSlot } from "../game/equipmentView.ts";
-import {
-  stageCost,
-  DISMANTLE_CYCLE,
-  dismantleableCount,
-  baseStageCost,
-  baseBonus,
-  baseItemsAvailable,
-} from "../game/research.ts";
+import { stageCost, DISMANTLE_CYCLE, dismantleableCount, baseStageCost, baseBonus, baseItemsAvailable } from "../game/research.ts";
+import { estimateFilterAverageCrafts } from "../game/filter.ts";
 
 export interface UICallbacks {
   onSelectStage(id: string): void;
@@ -42,9 +36,8 @@ export interface UICallbacks {
   onClearCraftQueue(slot: ItemSlot): void;
   onEquip(uid: number): void;
   onUnequip(slot: EquipSlotId): void;
-  onDiscard(uid: number): void;
-  onDiscardAll(): void;
-  onDiscardAllWarehouse(): void;
+  onMoveAllToWarehouse(): void;
+  onToggleItemLock(uid: number): void;
   onToWarehouse(uid: number): void;
   onFromWarehouse(uid: number): void;
   onFilterAdd(slot: ItemSlot, stat: string, minTier: number): void;
@@ -92,7 +85,9 @@ export class UI {
   private victoryModalEl!: HTMLElement;
   private coreModalEl!: HTMLElement;
   private stageModalEl!: HTMLElement;
+  private settingsModalEl!: HTMLElement;
   private stageModalOpen = false;
+  private settingsModalOpen = false;
   private tooltipKey: string | null = null;
   private filterModalSlot: ItemSlot | null = null;
   private coreTarget: { kind: MachineTargetKind; id: string; slotIndex: number } | null = null;
@@ -198,7 +193,7 @@ export class UI {
           <button class="tab-btn" data-act="tab" data-arg="bag">🎒 背包</button>
           <button class="tab-btn" data-act="tab" data-arg="research">🔬 研究</button>
           <button class="tab-btn" data-act="tab" data-arg="reincarnation" data-reinc-tab hidden>♾️ 輪迴</button>
-          <button class="btn-reset" data-act="reset">重置存檔</button>
+          <button class="btn-settings" data-act="openSettings">設定</button>
         </div>
       </div>
       <div class="main">
@@ -294,6 +289,18 @@ export class UI {
       if (e.target === this.stageModalEl) {
         this.stageModalOpen = false;
         this.renderStageModal(this.currentState);
+        return;
+      }
+      this.onClick(e as MouseEvent);
+    });
+    this.settingsModalEl = document.createElement("div");
+    this.settingsModalEl.className = "modal-backdrop";
+    this.settingsModalEl.hidden = true;
+    document.body.appendChild(this.settingsModalEl);
+    this.settingsModalEl.addEventListener("click", (e) => {
+      if (e.target === this.settingsModalEl) {
+        this.settingsModalOpen = false;
+        this.renderSettingsModal();
         return;
       }
       this.onClick(e as MouseEvent);
@@ -439,8 +446,18 @@ export class UI {
     switch (act) {
       case "reset":
         if (confirm("確定要重置存檔嗎？所有進度（裝備、材料、研究、關卡）將永久清除且無法復原。")) {
+          this.settingsModalOpen = false;
+          this.renderSettingsModal();
           this.cb.onReset();
         }
+        break;
+      case "openSettings":
+        this.settingsModalOpen = true;
+        this.renderSettingsModal();
+        break;
+      case "closeSettings":
+        this.settingsModalOpen = false;
+        this.renderSettingsModal();
         break;
       case "tab":
         this.setTab(arg);
@@ -485,14 +502,11 @@ export class UI {
       case "unequip":
         this.cb.onUnequip(arg as EquipSlotId);
         break;
-      case "discard":
-        this.cb.onDiscard(Number(arg));
+      case "moveAllToWarehouse":
+        this.cb.onMoveAllToWarehouse();
         break;
-      case "discardAll":
-        this.cb.onDiscardAll();
-        break;
-      case "discardAllWare":
-        this.cb.onDiscardAllWarehouse();
+      case "toggleLock":
+        this.cb.onToggleItemLock(Number(arg));
         break;
       case "toWare":
         this.cb.onToWarehouse(Number(arg));
@@ -650,6 +664,7 @@ export class UI {
     this.renderReincarnation(state);
     this.renderStageModal(state);
     this.renderFilterModal(state);
+    this.renderSettingsModal();
     this.renderCoreModal(state);
     this.renderVictoryModal(state);
     const reincTab = this.root.querySelector<HTMLElement>("[data-reinc-tab]");
@@ -931,6 +946,26 @@ export class UI {
       </div>
     `;
     this.stageModalEl.hidden = false;
+  }
+
+  private renderSettingsModal(): void {
+    if (!this.settingsModalOpen) {
+      this.settingsModalEl.hidden = true;
+      this.settingsModalEl.innerHTML = "";
+      return;
+    }
+    this.settingsModalEl.innerHTML = `
+      <div class="modal-card modal-card--settings" role="dialog" aria-modal="true" aria-label="設定">
+        <div class="modal-head">
+          <h3>設定</h3>
+          <button class="modal-close" data-act="closeSettings">關閉</button>
+        </div>
+        <div class="settings-list">
+          <button class="btn-reset" data-act="reset">刪除存檔</button>
+        </div>
+      </div>
+    `;
+    this.settingsModalEl.hidden = false;
   }
 
   private renderEquipped(state: GameState): void {
@@ -1216,6 +1251,10 @@ export class UI {
       ...defs.map((d) => `<option value="${d.stat}">${d.label}</option>`),
     ].join("");
     const tiers = Array.from({ length: 8 }, (_, k) => `<option value="${k + 1}">T${k + 1} 以上</option>`).join("");
+    const averageCrafts = estimateFilterAverageCrafts(state, slot);
+    const estimateText = averageCrafts
+      ? `平均每製作 ${formatAverageCrafts(averageCrafts)} 件，可得到 1 件符合目前設定的${ITEM_SLOT_NAME[slot]}。`
+      : `以目前設定估算，平均超過 ${formatAverageCrafts(20000)} 件仍可能做不到 1 件。`;
 
     this.filterModalEl.innerHTML = `
       <div class="modal-card" role="dialog" aria-modal="true" aria-label="${ITEM_SLOT_NAME[slot]} 過濾器">
@@ -1245,6 +1284,7 @@ export class UI {
             <button class="fs-quick-btn" data-act="filterAddQuick" data-arg="${slot}" data-value="__minRarity__:rare">至少稀有</button>
           </div>
         </div>
+        <div class="fs-estimate">${estimateText}</div>
         <button class="btn-sweep" data-act="filterSweep">套用到現有背包</button>
       </div>
     `;
@@ -1262,6 +1302,7 @@ export class UI {
     const renderList = (items: Item[], act: "socketCoreInv" | "socketCoreWare") =>
       items.length
         ? items.map((item) => `<div class="inv-item ${rarityClassName(item.rarity)}">
+            <button class="item-lock${item.locked ? " locked" : ""}" data-act="toggleLock" data-arg="${item.uid}" title="${item.locked ? "解鎖" : "上鎖"}">${item.locked ? "🔒" : "🔓"}</button>
             <span class="ii-name">${item.icon} ${item.name}</span>
             <span class="ii-stats">${describeEquip(item, state)}</span>
             <span class="ii-btns"><button data-act="${act}" data-arg="${item.uid}">裝入</button></span>
@@ -1292,18 +1333,18 @@ export class UI {
     }
     const head = `<div class="inv-head">
       <span>${filteredItems.length} / ${state.equipmentInv.length} 件</span>
-      <button class="ghost btn-discard-all" data-act="discardAll">全部拆除</button>
+      <button class="ghost btn-discard-all" data-act="moveAllToWarehouse">全部移至倉庫</button>
     </div>`;
     const items = filteredItems
       .slice(0, INV_RENDER_CAP)
       .map(
         (eq) => `<div class="inv-item ${rarityClassName(eq.rarity)}" data-uid="${eq.uid}" data-bag="main" data-eqtip="main:${eq.uid}">
+        <button class="item-lock${eq.locked ? " locked" : ""}" data-act="toggleLock" data-arg="${eq.uid}" title="${eq.locked ? "解鎖" : "上鎖"}">${eq.locked ? "🔒" : "🔓"}</button>
         <span class="ii-name">${eq.icon} ${eq.name}${eq.kind === "core" ? " <span class=\"slot-tag\">核心</span>" : ""} <span class="ii-cnt">${countVariableAffixes(eq)}詞</span></span>
         <span class="ii-stats">${describeEquip(eq, state)}</span>
         <span class="ii-btns">
           ${eq.kind === "equipment" ? `<button data-act="equip" data-arg="${eq.uid}">裝備</button>` : ""}
           <button class="ghost" data-act="toWare" data-arg="${eq.uid}">→庫</button>
-          <button class="ghost" data-act="discard" data-arg="${eq.uid}">拆除</button>
         </span>
       </div>`,
       )
@@ -1456,17 +1497,16 @@ export class UI {
     }
     const head = `<div class="inv-head">
       <span>${filteredItems.length} / ${state.warehouseInv.length} 件</span>
-      <button class="ghost btn-discard-all" data-act="discardAllWare">全部拆除</button>
     </div>`;
     const items = filteredItems
       .slice(0, INV_RENDER_CAP)
       .map(
         (eq) => `<div class="inv-item ${rarityClassName(eq.rarity)}" data-uid="${eq.uid}" data-bag="ware" data-eqtip="ware:${eq.uid}">
+        <button class="item-lock${eq.locked ? " locked" : ""}" data-act="toggleLock" data-arg="${eq.uid}" title="${eq.locked ? "解鎖" : "上鎖"}">${eq.locked ? "🔒" : "🔓"}</button>
         <span class="ii-name">${eq.icon} ${eq.name}${eq.kind === "core" ? " <span class=\"slot-tag\">核心</span>" : ""} <span class="ii-cnt">${countVariableAffixes(eq)}詞</span></span>
         <span class="ii-stats">${describeEquip(eq, state)}</span>
         <span class="ii-btns">
           <button data-act="fromWare" data-arg="${eq.uid}">←取回</button>
-          <button class="ghost" data-act="discard" data-arg="${eq.uid}">拆除</button>
         </span>
       </div>`,
       )
@@ -1519,6 +1559,7 @@ function describeFilterEntry(entry: FilterEntry, labelOf: (stat: string) => stri
 function rarityLabel(rarity: ItemRarity): string {
   if (rarity === "magic") return "魔法";
   if (rarity === "rare") return "稀有";
+  if (rarity === "legendary") return "傳奇";
   return "一般";
 }
 
@@ -1649,6 +1690,12 @@ function formatSpecialPct(value: number, digits: number): string {
 /** 撟喲?詨潭撘?嚗??其??亙?湔嚗＊蝷箔?敺?撣嗅??賊?嚗?*/
 function fmtNum(n: number): string {
   return `${Math.round(n)}`;
+}
+
+function formatAverageCrafts(value: number): string {
+  if (value >= 100) return `${Math.round(value)}`;
+  if (value >= 10) return value.toFixed(1).replace(/\.0$/, "");
+  return value.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
 }
 
 function summarizeStageEnemies(stage: StageDef): string {

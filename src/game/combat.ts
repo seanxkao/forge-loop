@@ -4,6 +4,7 @@ import { deriveStats, attackInterval } from "./hero.ts";
 import { add } from "./inventory.ts";
 import { materialDropMultiplier } from "./reincarnation.ts";
 import { coerceUnlockedStageId, unlockAfterStageClear } from "./unlocks.ts";
+import { grantLegendaryCoreReward } from "./legendaryCores.ts";
 
 function effectiveDefense(defense: number, penPct: number): number {
   const pen = Math.max(0, Math.min(1, penPct));
@@ -61,6 +62,7 @@ function advance(state: GameState, fx: CombatFx): void {
     c.waveIndex += 1;
     if (c.waveIndex >= stage.waves.length) {
       unlockAfterStageClear(state, stageId);
+      grantLegendaryCoreReward(state, stageId);
       c.waveIndex = 0;
       c.heroHp = deriveStats(state).hp;
       c.heroAtkTimer = 0;

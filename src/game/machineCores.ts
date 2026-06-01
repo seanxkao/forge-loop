@@ -21,6 +21,7 @@ export interface MachineCoreEffects {
   materialRefundPct: number;
   upgradeTierChance: number;
   rarityBonus: number;
+  luckyTierChance: number;
   tagWeights: Record<AffixTag, number>;
 }
 
@@ -36,6 +37,7 @@ export function emptyMachineCoreEffects(): MachineCoreEffects {
     materialRefundPct: 0,
     upgradeTierChance: 0,
     rarityBonus: 0,
+    luckyTierChance: 0,
     tagWeights: {
       physical: 0,
       crit: 0,
@@ -85,6 +87,9 @@ export function machineCoreEffects(
         case "rarityBonus":
           effects.rarityBonus += value;
           break;
+        case "luckyTierChance":
+          effects.luckyTierChance += value;
+          break;
         case "weightPhysical":
           effects.tagWeights.physical += value;
           break;
@@ -122,9 +127,9 @@ export function weightedAffixPool(pool: AffixDef[], tagWeights: Record<AffixTag,
   });
 }
 
-export function boostAffixTier(defs: AffixDef[], affixes: Affix[]): void {
+export function boostAffixTier(defs: AffixDef[], affixes: Affix[], rng: () => number = Math.random): void {
   if (affixes.length <= 0) return;
-  const index = Math.floor(Math.random() * affixes.length);
+  const index = Math.floor(rng() * affixes.length);
   const target = affixes[index];
   const def = defs.find((entry) => entry.stat === target.stat);
   if (!def) return;
@@ -132,15 +137,15 @@ export function boostAffixTier(defs: AffixDef[], affixes: Affix[]): void {
   if (tierIndex < 0 || tierIndex >= def.tiers.length - 1) return;
   const nextTier = def.tiers[tierIndex + 1];
   target.tier = nextTier.tier;
-  target.value = rollTierValue(nextTier.min, nextTier.max, isPctAffix(target.stat));
+  target.value = rollTierValue(nextTier.min, nextTier.max, isPctAffix(target.stat), rng);
 }
 
 export function effectiveAffixValue(state: GameState, affix: Affix): number {
-  return affix.value * affixBonusMultiplier(state, { kind: "core", slot: "core" }, affix);
+  return affix.value * affixBonusMultiplier(state, { kind: "core", slot: "core", rarity: "magic" }, affix);
 }
 
-export function rollTierValue(min: number, max: number, pct: boolean): number {
-  const raw = min + Math.random() * (max - min);
+export function rollTierValue(min: number, max: number, pct: boolean, rng: () => number = Math.random): number {
+  const raw = min + rng() * (max - min);
   return pct ? Math.round(raw * 10000) / 10000 : Math.round(raw);
 }
 

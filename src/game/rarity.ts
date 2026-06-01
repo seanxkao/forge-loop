@@ -26,6 +26,7 @@ export function rollEquipmentAffixCount(rarity: ItemRarity, rng: () => number = 
     case "magic":
       return rng() < MAGIC_TWO_AFFIX_CHANCE ? 1 : 2;
     case "rare":
+    case "legendary":
       return rng() < RARE_THREE_AFFIX_CHANCE ? 3 : 4;
   }
 }

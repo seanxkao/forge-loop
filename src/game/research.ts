@@ -64,7 +64,7 @@ export function addResearch(state: GameState, stat: string, value: number): void
 }
 
 export function dismantleableCount(state: GameState): number {
-  return state.warehouseInv.length;
+  return state.warehouseInv.filter((item) => !item.locked).length;
 }
 
 export function craftDismantler(state: GameState): boolean {
@@ -81,6 +81,7 @@ export function toggleDismantlerActive(state: GameState): void {
 }
 
 function dismantleItem(state: GameState, item: Item, multiplier: number): void {
+  if (item.rarity === "legendary") return;
   addBaseResearchProgress(state, item.kind === "core" ? "core" : item.slot, multiplier);
   for (const aff of item.affixes) {
     if (aff.fixed) continue;
@@ -95,17 +96,23 @@ export function tickDismantler(state: GameState, dt: number): void {
     d.progress = 0;
     return;
   }
+  if (!state.warehouseInv.some((item) => !item.locked)) {
+    d.progress = 0;
+    return;
+  }
 
   d.progress += dt * d.active;
   if (d.progress < DISMANTLE_CYCLE) return;
 
   const effects = machineCoreEffects(state, { kind: "dismantler", id: DISMANTLER.id });
   const multiplier = 1 + effects.productivity;
-  while (d.progress >= DISMANTLE_CYCLE && state.warehouseInv.length > 0) {
-    const item = state.warehouseInv.shift() as Item;
+  while (d.progress >= DISMANTLE_CYCLE && state.warehouseInv.some((item) => !item.locked)) {
+    const index = state.warehouseInv.findIndex((item) => !item.locked);
+    if (index < 0) break;
+    const item = state.warehouseInv.splice(index, 1)[0] as Item;
     dismantleItem(state, item, multiplier);
     d.progress -= DISMANTLE_CYCLE;
   }
 
-  if (state.warehouseInv.length <= 0) d.progress = 0;
+  if (!state.warehouseInv.some((item) => !item.locked)) d.progress = 0;
 }

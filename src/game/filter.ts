@@ -1,10 +1,12 @@
-import type { GameState, Item } from "./types.ts";
+import type { GameState, Item, ItemSlot } from "./types.ts";
 import { countVariableAffixes } from "./itemAffixes.ts";
+import { simulateCraftedItem } from "./craftingEstimate.ts";
 
 const RARITY_RANK = {
   normal: 0,
   magic: 1,
   rare: 2,
+  legendary: 3,
 } as const;
 
 export function passesFilter(state: GameState, item: Item): boolean {
@@ -32,4 +34,18 @@ export function applyFilterSweep(state: GameState): void {
       state.warehouseInv.push(state.equipmentInv.splice(i, 1)[0]);
     }
   }
+}
+
+export function estimateFilterAverageCrafts(
+  state: GameState,
+  slot: ItemSlot,
+  samples = 20000,
+): number | null {
+  if (samples <= 0) return null;
+  let matches = 0;
+  for (let i = 0; i < samples; i += 1) {
+    if (passesFilter(state, simulateCraftedItem(state, slot))) matches += 1;
+  }
+  if (matches <= 0) return null;
+  return samples / matches;
 }

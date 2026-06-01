@@ -24,7 +24,7 @@ import {
 import {
   equip,
   unequip,
-  discard,
+  toggleItemLock,
   toWarehouse,
   fromWarehouse,
 } from "./game/equipment.ts";
@@ -105,16 +105,12 @@ const ui = new UI(root, canvas, {
     unequip(state, slot);
     ui.refresh(state);
   },
-  onDiscard: (uid) => {
-    discard(state, uid);
+  onMoveAllToWarehouse: () => {
+    for (const eq of [...state.equipmentInv]) toWarehouse(state, eq.uid);
     ui.refresh(state);
   },
-  onDiscardAll: () => {
-    for (const eq of [...state.equipmentInv]) discard(state, eq.uid);
-    ui.refresh(state);
-  },
-  onDiscardAllWarehouse: () => {
-    for (const eq of [...state.warehouseInv]) discard(state, eq.uid);
+  onToggleItemLock: (uid) => {
+    toggleItemLock(state, uid);
     ui.refresh(state);
   },
   onToWarehouse: (uid) => {

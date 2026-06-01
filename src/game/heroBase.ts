@@ -5,6 +5,7 @@ export const HERO_BASE: StatBlock = {
   hp: 50,
   atk: 7,
   localPhysPct: 0,
+  localHastePct: 0,
   def: 0,
   critChance: 0.05,
   critMult: 1.5,

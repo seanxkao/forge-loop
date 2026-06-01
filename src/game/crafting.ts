@@ -28,21 +28,27 @@ import {
   rollEquipmentRarity,
 } from "./rarity.ts";
 
-function rollTier(def: AffixDef): AffixTier {
+function rollTier(def: AffixDef, rng: () => number = Math.random, luckyTierChance = 0): AffixTier {
   const total = def.tiers.reduce((a, t) => a + t.weight, 0);
-  let r = Math.random() * total;
-  for (const t of def.tiers) {
-    r -= t.weight;
-    if (r < 0) return t;
-  }
-  return def.tiers[def.tiers.length - 1];
+  const rollOnce = (): AffixTier => {
+    let r = rng() * total;
+    for (const t of def.tiers) {
+      r -= t.weight;
+      if (r < 0) return t;
+    }
+    return def.tiers[def.tiers.length - 1];
+  };
+  const first = rollOnce();
+  if (luckyTierChance <= 0 || rng() >= luckyTierChance) return first;
+  const second = rollOnce();
+  return second.tier > first.tier ? second : first;
 }
 
-function rollOneAffix(def: AffixDef): Affix {
-  const t = rollTier(def);
+function rollOneAffix(def: AffixDef, rng: () => number = Math.random, luckyTierChance = 0): Affix {
+  const t = rollTier(def, rng, luckyTierChance);
   return {
     stat: def.stat,
-    value: rollTierValue(t.min, t.max, !!def.pct),
+    value: rollTierValue(t.min, t.max, !!def.pct, rng),
     label: def.label,
     pct: def.pct,
     tier: t.tier,
@@ -55,16 +61,18 @@ function rollAffixes(
   pool: AffixDef[],
   count: number,
   upgradeTierChance: number,
+  rng: () => number = Math.random,
+  luckyTierChance = 0,
 ): Affix[] {
   const available = [...pool];
   const out: Affix[] = [];
   const cappedCount = Math.min(count, available.length);
   for (let i = 0; i < cappedCount; i += 1) {
-    const idx = Math.floor(Math.random() * available.length);
+    const idx = Math.floor(rng() * available.length);
     const def = available.splice(idx, 1)[0];
-    out.push(rollOneAffix(def));
+    out.push(rollOneAffix(def, rng, luckyTierChance));
   }
-  if (Math.random() < upgradeTierChance) boostAffixTier(pool, out);
+  if (rng() < upgradeTierChance) boostAffixTier(pool, out, rng);
   return out;
 }
 
@@ -100,9 +108,10 @@ function craftEquipmentInternal(
     icon: recipe.icon,
     kind: "equipment",
     rarity,
+    locked: false,
     slot: recipe.slot,
     base: { ...recipe.base },
-    affixes: rollAffixes(pool, affixCount, effects.upgradeTierChance),
+    affixes: rollAffixes(pool, affixCount, effects.upgradeTierChance, Math.random, effects.luckyTierChance),
   };
   pushCraftedItem(state, eq);
   source.productivity += effects.productivity;
@@ -122,7 +131,7 @@ function craftCoreInternal(state: GameState, spendCost: boolean): CoreItem | nul
   const rarity = rollCoreRarity(effects.rarityBonus);
   const affixCount = rollCoreVariableAffixCount(rarity);
   const fixedAffix = rollOneAffix(CORE_RECIPE.fixedAffix);
-  const rolled = rollAffixes(pool, affixCount, effects.upgradeTierChance);
+  const rolled = rollAffixes(pool, affixCount, effects.upgradeTierChance, Math.random, effects.luckyTierChance);
   const core: CoreItem = {
     uid: state.nextEquipId++,
     recipeId: CORE_RECIPE.id,
@@ -130,6 +139,7 @@ function craftCoreInternal(state: GameState, spendCost: boolean): CoreItem | nul
     icon: CORE_RECIPE.icon,
     kind: "core",
     rarity,
+    locked: false,
     slot: "core",
     affixes: [{ ...fixedAffix, fixed: true }, ...rolled],
   };

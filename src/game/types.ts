@@ -2,7 +2,7 @@ export type Slot = "weapon" | "armor" | "accessory";
 export type ItemSlot = Slot | "core";
 export type BaseResearchSlot = Slot | "core";
 export type EquipSlotId = "weapon" | "armor" | "accessory1" | "accessory2";
-export type ItemRarity = "normal" | "magic" | "rare";
+export type ItemRarity = "normal" | "magic" | "rare" | "legendary";
 export type ItemKind = "equipment" | "core";
 export type AffixTag = "physical" | "crit" | "speed" | "life" | "defense" | "craft";
 export type MachineTargetKind = "machine" | "crafter" | "coreCrafter" | "dismantler";
@@ -11,6 +11,7 @@ export interface StatBlock {
   hp: number;
   atk: number;
   localPhysPct: number;
+  localHastePct: number;
   def: number;
   critChance: number;
   critMult: number;
@@ -31,6 +32,7 @@ export type AffixStat =
   | "materialRefundPct"
   | "upgradeTierChance"
   | "rarityBonus"
+  | "luckyTierChance"
   | "weightPhysical"
   | "weightCrit"
   | "weightSpeed"
@@ -129,7 +131,7 @@ export type FilterEntry =
     }
   | {
       kind: "minRarity";
-      rarity: Exclude<ItemRarity, "normal">;
+      rarity: Exclude<ItemRarity, "normal" | "legendary">;
     };
 
 export interface Affix {
@@ -148,6 +150,7 @@ interface ItemBase {
   name: string;
   icon: string;
   rarity: ItemRarity;
+  locked: boolean;
   affixes: Affix[];
 }
 
@@ -215,6 +218,8 @@ export interface ProgressState {
   unlockedStageCount: number;
   coreUnlocked: boolean;
   autoAdvanceNext: boolean;
+  grantedLegendaryCore24: boolean;
+  grantedLegendaryCore34: boolean;
 }
 
 export interface GameState {

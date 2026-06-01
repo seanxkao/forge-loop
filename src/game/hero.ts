@@ -23,6 +23,7 @@ export function deriveStats(state: GameState): StatBlock {
       const v = aff.value * affixBonusMultiplier(state, w, aff);
       if (aff.stat === "atk") flat += v;
       else if (aff.stat === "localPhysPct") local += v;
+      else if (aff.stat === "localHastePct") s.localHastePct += v;
       else if (aff.stat in s) s[aff.stat as keyof StatBlock] += v;
     }
     s.atk += (base + flat) * (1 + local);
@@ -56,5 +57,5 @@ function applyGlobal(state: GameState, s: StatBlock, eq: Equipment): void {
 }
 
 export function attackInterval(stats: StatBlock): number {
-  return HERO_BASE_INTERVAL / (1 + stats.haste);
+  return HERO_BASE_INTERVAL / ((1 + stats.haste) * (1 + stats.localHastePct));
 }

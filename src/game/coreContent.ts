@@ -1,4 +1,4 @@
-import type { AffixDef, AffixTier, CoreRecipeDef, MachineDef } from "./types.ts";
+import type { AffixDef, AffixTier, CoreItem, CoreRecipeDef, GameState, MachineDef } from "./types.ts";
 import { withDerivedAffixMeta } from "./affixMeta.ts";
 
 function tiers(min: number, max: number): AffixTier[] {
@@ -22,11 +22,17 @@ export const CORE_FIXED_AFFIX: AffixDef = withDerivedAffixMeta({
   tiers: tiers(0.02, 0.04),
 });
 
+export const LEGENDARY_CORE_LUCKY_AFFIX: AffixDef = withDerivedAffixMeta({
+  stat: "luckyTierChance",
+  fixed: true,
+  tiers: [{ tier: 1, weight: 1, min: 0.1, max: 0.1 }],
+});
+
 export const CORE_AFFIX_POOL: AffixDef[] = [
   withDerivedAffixMeta({ stat: "machineSpeedPct", tiers: tiers(0.04, 0.32) }),
   withDerivedAffixMeta({ stat: "materialRefundPct", tiers: tiers(0.025, 0.2) }),
   withDerivedAffixMeta({ stat: "upgradeTierChance", tiers: tiers(0.125, 1) }),
-  withDerivedAffixMeta({ stat: "rarityBonus", tiers: tiers(0.01, 0.08) }),
+  withDerivedAffixMeta({ stat: "rarityBonus", tiers: tiers(0.03, 0.24) }),
   withDerivedAffixMeta({ stat: "weightPhysical", tiers: tiers(0.125, 1) }),
   withDerivedAffixMeta({ stat: "weightCrit", tiers: tiers(0.125, 1) }),
   withDerivedAffixMeta({ stat: "weightSpeed", tiers: tiers(0.125, 1) }),
@@ -58,3 +64,36 @@ export const MATERIAL_DROP_AFFIX: AffixDef = withDerivedAffixMeta({
   stat: "materialDropPct",
   tiers: tiers(0.05, 0.4),
 });
+
+export function createLegendaryCore(state: GameState, suffix: string): CoreItem {
+  return {
+    uid: state.nextEquipId++,
+    recipeId: "legendary-core",
+    name: `傳奇核心${suffix}`,
+    icon: "👑",
+    kind: "core",
+    rarity: "legendary",
+    locked: true,
+    slot: "core",
+    affixes: [
+      {
+        stat: CORE_FIXED_AFFIX.stat,
+        label: CORE_FIXED_AFFIX.label,
+        pct: CORE_FIXED_AFFIX.pct,
+        tags: CORE_FIXED_AFFIX.tags,
+        tier: CORE_FIXED_AFFIX.tiers[0].tier,
+        value: CORE_FIXED_AFFIX.tiers[0].max,
+        fixed: true,
+      },
+      {
+        stat: LEGENDARY_CORE_LUCKY_AFFIX.stat,
+        label: LEGENDARY_CORE_LUCKY_AFFIX.label,
+        pct: LEGENDARY_CORE_LUCKY_AFFIX.pct,
+        tags: LEGENDARY_CORE_LUCKY_AFFIX.tags,
+        tier: 1,
+        value: 0.1,
+        fixed: true,
+      },
+    ],
+  };
+}

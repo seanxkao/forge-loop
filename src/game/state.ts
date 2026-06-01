@@ -49,6 +49,8 @@ export function createInitialState(): GameState {
       unlockedStageCount: 1,
       coreUnlocked: false,
       autoAdvanceNext: false,
+      grantedLegendaryCore24: false,
+      grantedLegendaryCore34: false,
     },
     nextEquipId: 1,
   };
