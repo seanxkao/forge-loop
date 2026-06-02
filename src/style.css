@@ -1846,13 +1846,29 @@ body {
 }
 .rtrack {
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
   gap: 2px 8px;
   background: var(--panel2);
   border: 1px solid var(--line);
   border-radius: 6px;
   padding: 6px 8px;
   font-size: 12px;
+}
+/* 研究鈕：可研究時亮起，不足時暗化不可按 */
+.rt-btn {
+  min-width: 0;
+  padding: 3px 12px;
+  font-size: 12px;
+}
+.rrow.can-research .rt-btn {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.rt-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 .rt-name {
   font-weight: 600;
@@ -1883,7 +1899,8 @@ body {
 }
 .brank {
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
   gap: 2px 8px;
   background: var(--panel2);
   border: 1px solid var(--line);

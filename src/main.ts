@@ -3,7 +3,7 @@ import type { CoreSlots } from "./game/machineCores.ts";
 import type { FilterEntry, GameState, ItemSlot } from "./game/types.ts";
 import { organizeBag } from "./game/filter.ts";
 import { MATERIALS } from "./game/content.ts";
-import { load, save, wipe } from "./game/save.ts";
+import { load, save, wipe, exportSaveText, importSaveText } from "./game/save.ts";
 import { createInitialState } from "./game/state.ts";
 import { GameLoop } from "./game/loop.ts";
 import { tickCombat, startStage, type CombatFx } from "./game/combat.ts";
@@ -28,7 +28,7 @@ import {
 import { equip, unequip, toggleItemLock, toWarehouse, fromWarehouse } from "./game/equipment.ts";
 import { inBattle, queueLoadoutAction, effectiveRuneSelection, cancelPendingEquip, cancelPendingVacate } from "./game/loadout.ts";
 import { socketCore, unsocketCore } from "./game/machineCores.ts";
-import { tickLab, toggleLabActive, researchBase } from "./game/research.ts";
+import { tickDismantler, researchBase, researchAffix } from "./game/research.ts";
 import { BattleRenderer } from "./render/battle.ts";
 import { UI, type CoreTarget } from "./ui/ui.ts";
 
@@ -55,7 +55,7 @@ const fx: CombatFx = {
 };
 
 function coresOf(s: GameState, target: CoreTarget): CoreSlots | null {
-  if (target.kind === "lab") return s.lab.cores;
+  if (target.kind === "dismantler") return s.dismantler.cores;
   return s.production.tabs[target.tab]?.rows[target.row]?.cores ?? null;
 }
 
@@ -67,6 +67,66 @@ function buildFilterEntry(stat: string, minTier: number): FilterEntry {
     return { kind: "rarity", cmp: "gte", rarity: stat.split(":")[1] as never };
   }
   return { kind: "affixTier", stat: stat as Extract<FilterEntry, { kind: "affixTier" }>["stat"], cmp: "gte", tier: minTier };
+}
+
+/** 匯出存檔到本機檔案：優先用 File System Access API 讓玩家選路徑，否則退回瀏覽器下載。 */
+async function exportSave(): Promise<void> {
+  const data = exportSaveText(state);
+  const filename = `forge-loop-save-${new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19)}.json`;
+  const w = window as unknown as {
+    showSaveFilePicker?: (opts: {
+      suggestedName?: string;
+      types?: Array<{ description?: string; accept: Record<string, string[]> }>;
+    }) => Promise<{ createWritable: () => Promise<{ write: (d: string) => Promise<void>; close: () => Promise<void> }> }>;
+  };
+  if (w.showSaveFilePicker) {
+    try {
+      const handle = await w.showSaveFilePicker({
+        suggestedName: filename,
+        types: [{ description: "Forge Loop 存檔", accept: { "application/json": [".json"] } }],
+      });
+      const writable = await handle.createWritable();
+      await writable.write(data);
+      await writable.close();
+      return;
+    } catch (e) {
+      if ((e as { name?: string }).name === "AbortError") return; // 玩家取消
+      // 其他錯誤 → 退回下載
+    }
+  }
+  const blob = new Blob([data], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+/** 匯入存檔：選檔 → 驗證 → 確認後寫入並重新整理（走 migrate 流程）。 */
+function importSave(): void {
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = "application/json,.json";
+  input.addEventListener("change", () => {
+    const file = input.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.addEventListener("load", () => {
+      const text = String(reader.result);
+      try {
+        JSON.parse(text);
+      } catch {
+        alert("匯入失敗：檔案不是有效的存檔 JSON。");
+        return;
+      }
+      if (!confirm("匯入會覆蓋目前進度並重新整理，確定？")) return;
+      if (importSaveText(text)) location.reload();
+      else alert("匯入失敗：存檔格式不正確。");
+    });
+    reader.readAsText(file);
+  });
+  input.click();
 }
 
 const ui = new UI(root, canvas, {
@@ -90,7 +150,7 @@ const ui = new UI(root, canvas, {
   onAddTab: () => { addProductionTab(state); ui.refresh(state); },
   onRenameTab: (tab, name) => { renameProductionTab(state, tab, name); ui.refresh(state); },
   onRemoveTab: (tab) => { removeProductionTab(state, tab); ui.refresh(state); },
-  onToggleLab: () => { toggleLabActive(state); ui.refresh(state); },
+  onResearchAffix: (stat) => { researchAffix(state, stat); ui.refresh(state); },
   onEquip: (uid) => {
     if (inBattle(state)) {
       queueLoadoutAction(state, { kind: "equip", uid });
@@ -182,6 +242,8 @@ const ui = new UI(root, canvas, {
     startStage(state, state.combat.stageId);
     ui.refresh(state);
   },
+  onExportSave: () => { void exportSave(); },
+  onImportSave: () => { importSave(); },
 });
 ui.refresh(state);
 
@@ -194,7 +256,7 @@ const loop = new GameLoop(
     if (state.reincarnation.victoryPending) return;
     tickCombat(state, dt, fx);
     tickProduction(state, dt);
-    tickLab(state, dt);
+    tickDismantler(state, dt);
     if (
       state.reincarnation.victoryPending !== hadVictoryPending ||
       state.reincarnation.gameCleared !== hadGameCleared

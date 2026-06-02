@@ -83,7 +83,7 @@ export { CORE_RECIPE };
 
 // ---- 統一配方註冊表：組裝機可指定的所有配方（提煉／裝備／核心／機台自身） ----
 
-export type RecipeKind = "refine" | "equipment" | "core" | "assembler" | "lab";
+export type RecipeKind = "refine" | "equipment" | "core" | "assembler" | "lab" | "dismantler";
 
 export interface ProdRecipeDef {
   id: RecipeId;
@@ -112,6 +112,7 @@ export const PROD_RECIPES: Record<RecipeId, ProdRecipeDef> = {
   core: { id: "core", name: "核心", icon: CORE_RECIPE.icon, kind: "core", input: CORE_RECIPE.cost, cycleTime: 8, unlock: "core" },
   assembler: { id: "assembler", name: "組裝機", icon: "🛠️", kind: "assembler", input: ASSEMBLER_COST, cycleTime: 3, unlock: "start" },
   lab: { id: "lab", name: "研究室", icon: "🔬", kind: "lab", input: LAB_COST, cycleTime: 3, unlock: "start" },
+  dismantler: { id: "dismantler", name: "拆解機", icon: "🪓", kind: "dismantler", input: LAB_COST, cycleTime: 3, unlock: "start" },
 };
 
 // ---- 關卡：20 關，5 區 × 4 關（第 4 關為魔王） ----

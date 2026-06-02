@@ -2,7 +2,7 @@ import type { GameState } from "./types.ts";
 import { STAGES } from "./content.ts";
 import { INITIAL_RUNES } from "./runes.ts";
 
-export const SAVE_VERSION = 12;
+export const SAVE_VERSION = 14;
 
 export function createInitialState(): GameState {
   return {
@@ -15,8 +15,12 @@ export function createInitialState(): GameState {
     // 生產：開局 1 個子分頁、無放置；送 1 台庫存組裝機由玩家放置（首格閃爍引導）。
     production: { tabs: [{ name: "生產線", rows: [] }] },
     spareAssemblers: 10,
-    // 研究室開局 0 台，需自行用組裝機生產。
+    // 研究室已停用、保留 0 台供存檔相容。
     lab: { count: 0, active: true, progress: 0, cores: [null, null] },
+    // 拆解機開局 0 台，需自行用組裝機生產。
+    dismantler: { count: 0, progress: 0, productivity: 0, cores: [null, null] },
+    essences: {},
+    crystals: { weapon: 0, armor: 0, accessory: 0, core: 0 },
     bagFilters: { weapon: [], armor: [], accessory: [], core: [] },
     equipmentInv: [],
     warehouseInv: [],

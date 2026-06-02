@@ -224,6 +224,9 @@ function produceOutputs(
     case "lab":
       state.lab.count += runs;
       break;
+    case "dismantler":
+      state.dismantler.count += runs;
+      break;
   }
 }
 

@@ -1,4 +1,4 @@
-import type { CoreItem, FilterEntry, GameState, Item } from "./types.ts";
+import type { BaseResearchSlot, CoreItem, FilterEntry, GameState, Item } from "./types.ts";
 import { deriveLegacyItemRarity } from "./rarity.ts";
 import { SAVE_VERSION, createInitialState } from "./state.ts";
 import { normalizeUnlockProgress } from "./unlocks.ts";
@@ -38,6 +38,23 @@ export function save(state: GameState): void {
     localStorage.setItem(KEY, JSON.stringify(state));
   } catch {
     // localStorage 不可用 / 配額滿，靜默忽略
+  }
+}
+
+/** 匯出：把目前狀態序列化成可下載的 JSON 文字。 */
+export function exportSaveText(state: GameState): string {
+  return JSON.stringify(state, null, 2);
+}
+
+/** 匯入：驗證 JSON 後寫入存檔位置（不直接套用，交由重新載入時走 migrate 流程）。成功回 true。 */
+export function importSaveText(text: string): boolean {
+  try {
+    const parsed = JSON.parse(text);
+    if (!parsed || typeof parsed !== "object") return false;
+    localStorage.setItem(KEY, JSON.stringify(parsed));
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -98,6 +115,30 @@ function doubleFlatDamageOnce(state: GameState): void {
       }
     }
   }
+}
+
+/** 遷移（priorVersion < 14）：研究通貨化改造。原訂 v13，因開發期 HMR 時序使存檔在遷移碼上線前先被標記 v13，改用 v14 重跑；已改為冪等（lab 歸 0、points 清空）故重跑安全。
+ *  既有研究室 → 等量拆解機（研究室保留但停用）；其核心移到拆解機免得卡住。
+ *  殘餘研究值（research.points／baseResearchPoints）兌換成對應精髓／結晶。 */
+function migrateToCurrencyResearch(state: GameState): void {
+  state.dismantler.count += state.lab.count;
+  for (let i = 0; i < 2; i += 1) {
+    if (!state.dismantler.cores[i] && state.lab.cores[i]) {
+      state.dismantler.cores[i] = state.lab.cores[i];
+      state.lab.cores[i] = null;
+    }
+  }
+  state.lab.count = 0; // 轉移完歸 0（inert）；確保此遷移冪等、重跑不重複加成
+  for (const stat in state.research.points) {
+    const v = state.research.points[stat];
+    if (v > 0) state.essences[stat] = (state.essences[stat] ?? 0) + v;
+  }
+  state.research.points = {};
+  for (const slot of Object.keys(state.baseResearchPoints) as BaseResearchSlot[]) {
+    const v = state.baseResearchPoints[slot] ?? 0;
+    if (v > 0) state.crystals[slot] = (state.crystals[slot] ?? 0) + v;
+  }
+  state.baseResearchPoints = { weapon: 0, armor: 0, accessory: 0, core: 0 };
 }
 
 /** 既有傳奇核心對齊現行規格：產能固定詞永遠為範圍最高 roll、幸運值更新為現行值。 */
@@ -319,6 +360,7 @@ export function load(): GameState {
     normalizeUnlockProgress(migrated);
     if (priorVersion < 11) halveUpgradeTierChanceOnce(migrated);
     if (priorVersion < 12) doubleFlatDamageOnce(migrated);
+    if (priorVersion < 14) migrateToCurrencyResearch(migrated);
     migrated.version = SAVE_VERSION;
     restoreRuneSelection(migrated, parsed);
     return migrated;

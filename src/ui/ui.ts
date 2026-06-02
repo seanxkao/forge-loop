@@ -28,14 +28,14 @@ import { rarityClassName } from "../game/rarity.ts";
 import { stageIndexById, unlockedStages, isRecipeUnlocked } from "../game/unlocks.ts";
 import { clampTooltipPosition } from "./tooltipPosition.ts";
 import { affixBonusMultiplier, countVariableAffixes } from "../game/itemAffixes.ts";
-import { DISMANTLE_CYCLE, stageCost, dismantleableCount, baseStageCost, baseBonus, baseItemsAvailable } from "../game/research.ts";
+import { DISMANTLE_CYCLE, stageCost, dismantleableCount, baseStageCost, baseBonus, baseItemsAvailable, essenceAvailable } from "../game/research.ts";
 import { estimateFilterMatches } from "../game/filter.ts";
 import { effectiveRuneSelection, pendingVacatedSlots, resolvePendingSlots } from "../game/loadout.ts";
 
 /** 核心插槽目標：生產行（tab,row）或研究室。 */
 export type CoreTarget =
   | { kind: "row"; tab: number; row: number; slotIndex: number }
-  | { kind: "lab"; slotIndex: number };
+  | { kind: "dismantler"; slotIndex: number };
 
 export interface UICallbacks {
   onSelectStage(id: string): void;
@@ -53,7 +53,7 @@ export interface UICallbacks {
   onAddTab(): void;
   onRenameTab(tab: number, name: string): void;
   onRemoveTab(tab: number): void;
-  onToggleLab(): void;
+  onResearchAffix(stat: string): void;
   onEquip(uid: number): void;
   onUnequip(slot: EquipSlotId): void;
   onCancelPendingEquip(uid: number): void;
@@ -77,6 +77,8 @@ export interface UICallbacks {
   onVictoryContinue(): void;
   onReincarnate(buff: ReincarnationBuff): void;
   onReset(): void;
+  onExportSave(): void;
+  onImportSave(): void;
 }
 
 const SLOT_NAME: Record<Slot, string> = { weapon: "武器", armor: "防具", accessory: "飾品" };
@@ -148,12 +150,10 @@ export class UI {
   private labCountEl: HTMLElement | null = null;
   private labBar: HTMLElement | null = null;
   private labStatus: HTMLElement | null = null;
-  private researchRows: { stat: string; row: HTMLElement; bonus: HTMLElement; prog: HTMLElement; fill: HTMLElement }[] = [];
-  private baseRows: { slot: BaseResearchSlot; row: HTMLElement; bonus: HTMLElement; prog: HTMLElement; fill: HTMLElement }[] = [];
-  private researchDisp: Record<string, number> = {};
+  private researchRows: { stat: string; row: HTMLElement; bonus: HTMLElement; prog: HTMLElement; fill: HTMLElement; btn: HTMLButtonElement }[] = [];
+  private baseRows: { slot: BaseResearchSlot; row: HTMLElement; bonus: HTMLElement; prog: HTMLElement; fill: HTMLElement; btn: HTMLButtonElement }[] = [];
   private lastStages: Record<string, number> = {};
   private flashUntil: Record<string, number> = {};
-  private baseResearchDisp: Record<BaseResearchSlot, number> = { weapon: 0, armor: 0, accessory: 0, core: 0 };
   private lastBaseStages: Record<BaseResearchSlot, number> = { weapon: 0, armor: 0, accessory: 0, core: 0 };
   private baseFlashUntil: Record<BaseResearchSlot, number> = { weapon: 0, armor: 0, accessory: 0, core: 0 };
   private lastCycleSeen = 1;
@@ -440,6 +440,8 @@ export class UI {
         break;
       case "openSettings": this.settingsModalOpen = true; this.renderSettingsModal(); break;
       case "closeSettings": this.settingsModalOpen = false; this.renderSettingsModal(); break;
+      case "exportSave": this.cb.onExportSave(); break;
+      case "importSave": this.cb.onImportSave(); break;
       case "tab":
         this.setTab(arg);
         if (arg === "bag" && this.currentState?.progress.craftedEquipmentOnce && !this.currentState.progress.bagGuideSeen) {
@@ -638,6 +640,7 @@ export class UI {
       case "unsocketCore": this.cb.onUnsocketCore(this.readCoreTarget(t)); break;
       // ---- 研究室 ----
       case "researchBase": this.cb.onResearchBase(arg as BaseResearchSlot); break;
+      case "researchAffix": this.cb.onResearchAffix(arg as string); break;
       // ---- 輪迴 ----
       case "victoryContinue": this.cb.onVictoryContinue(); break;
       case "reincarnate": this.cb.onReincarnate(arg as ReincarnationBuff); break;
@@ -646,7 +649,7 @@ export class UI {
 
   private readCoreTarget(t: HTMLElement): CoreTarget {
     const slotIndex = Number(t.dataset.slotIndex ?? "0");
-    if (t.dataset.coreKind === "lab") return { kind: "lab", slotIndex };
+    if (t.dataset.coreKind === "dismantler") return { kind: "dismantler", slotIndex };
     return { kind: "row", tab: Number(t.dataset.tab), row: Number(t.dataset.row), slotIndex };
   }
 
@@ -712,10 +715,8 @@ export class UI {
   }
 
   private resetResearchAnimationCaches(): void {
-    this.researchDisp = {};
     this.lastStages = {};
     this.flashUntil = {};
-    this.baseResearchDisp = { weapon: 0, armor: 0, accessory: 0, core: 0 };
     this.lastBaseStages = { weapon: 0, armor: 0, accessory: 0, core: 0 };
     this.baseFlashUntil = { weapon: 0, armor: 0, accessory: 0, core: 0 };
   }
@@ -743,8 +744,8 @@ export class UI {
     }
     if (this.spareMatEl) this.spareMatEl.textContent = `${state.spareAssemblers}`;
     if (this.spareMatWrap) this.spareMatWrap.classList.toggle("dim", state.spareAssemblers === 0);
-    if (this.labMatEl) this.labMatEl.textContent = `${state.lab.count}`;
-    if (this.labMatWrap) this.labMatWrap.classList.toggle("dim", state.lab.count === 0);
+    if (this.labMatEl) this.labMatEl.textContent = `${state.dismantler.count}`;
+    if (this.labMatWrap) this.labMatWrap.classList.toggle("dim", state.dismantler.count === 0);
 
     // 研究／基底研究升階時，裝備卡上顯示的參數（含研究加成）要即時重繪——
     // 不分頁偵測階數總和變化（實際戰鬥數值走 deriveStats 本就即時，這裡只補顯示）。
@@ -788,47 +789,39 @@ export class UI {
 
     const now = performance.now();
     if (this.activeTab === "research") {
-      const lab = state.lab;
-      if (this.labCountEl) this.labCountEl.textContent = `${lab.count}`;
-      if (this.labBar) this.labBar.style.width = lab.count > 0 ? `${Math.round((lab.progress / DISMANTLE_CYCLE) * 100)}%` : "0%";
+      const d = state.dismantler;
+      if (this.labCountEl) this.labCountEl.textContent = `${d.count}`;
+      if (this.labBar) this.labBar.style.width = d.count > 0 ? `${Math.round((d.progress / DISMANTLE_CYCLE) * 100)}%` : "0%";
       if (this.labStatus) {
         const dcount = dismantleableCount(state);
         this.labStatus.textContent = dcount ? `可拆 ${dcount} 件裝備` : "倉庫裡沒有可拆裝備";
       }
       for (const t of this.researchRows) {
         const stages = state.research.stages[t.stat] ?? 0;
-        const pts = state.research.points[t.stat] ?? 0;
+        const have = essenceAvailable(state, t.stat);
         const cost = stageCost(state, stages);
         if (this.lastStages[t.stat] === undefined) this.lastStages[t.stat] = stages;
-        if (stages !== this.lastStages[t.stat]) {
-          this.researchDisp[t.stat] = stageCost(state, this.lastStages[t.stat]);
-          this.lastStages[t.stat] = stages;
-          this.flashUntil[t.stat] = now + 700;
-        }
-        const prev = this.researchDisp[t.stat] ?? pts;
-        const disp = prev + (pts - prev) * 0.18;
-        this.researchDisp[t.stat] = disp;
+        if (stages !== this.lastStages[t.stat]) { this.lastStages[t.stat] = stages; this.flashUntil[t.stat] = now + 700; }
+        const can = have >= cost;
         t.bonus.textContent = `+${stages * 10}%`;
-        t.prog.textContent = `${Math.floor(disp)}/${cost}`;
-        t.fill.style.width = `${Math.round(Math.min(1, disp / cost) * 100)}%`;
+        t.prog.textContent = `${fmtNum(have)}/${cost} 精髓`;
+        t.fill.style.width = `${Math.round(Math.min(1, have / cost) * 100)}%`;
+        t.btn.disabled = !can;
+        t.row.classList.toggle("can-research", can);
         t.row.classList.toggle("flash", (this.flashUntil[t.stat] ?? 0) > now);
       }
       for (const b of this.baseRows) {
         const stages = state.baseResearch[b.slot] ?? 0;
         const need = baseStageCost(state, stages);
-        const avail = baseItemsAvailable(state, b.slot);
+        const have = baseItemsAvailable(state, b.slot);
         if (this.lastBaseStages[b.slot] === undefined) this.lastBaseStages[b.slot] = stages;
-        if (stages !== this.lastBaseStages[b.slot]) {
-          this.baseResearchDisp[b.slot] = baseStageCost(state, this.lastBaseStages[b.slot]);
-          this.lastBaseStages[b.slot] = stages;
-          this.baseFlashUntil[b.slot] = now + 700;
-        }
-        const prev = this.baseResearchDisp[b.slot] ?? avail;
-        const disp = prev + (avail - prev) * 0.18;
-        this.baseResearchDisp[b.slot] = disp;
+        if (stages !== this.lastBaseStages[b.slot]) { this.lastBaseStages[b.slot] = stages; this.baseFlashUntil[b.slot] = now + 700; }
+        const can = have >= need;
         b.bonus.textContent = `+${Math.round(baseBonus(state, b.slot) * 100)}%`;
-        b.prog.textContent = `${Math.floor(disp)}/${need}`;
-        b.fill.style.width = `${Math.round(Math.min(1, disp / need) * 100)}%`;
+        b.prog.textContent = `${fmtNum(have)}/${need} 結晶`;
+        b.fill.style.width = `${Math.round(Math.min(1, have / need) * 100)}%`;
+        b.btn.disabled = !can;
+        b.row.classList.toggle("can-research", can);
         b.row.classList.toggle("flash", (this.baseFlashUntil[b.slot] ?? 0) > now);
       }
     }
@@ -922,7 +915,7 @@ export class UI {
       .map((m) => `<span class="mat" data-mat="${m.id}" title="${m.name}">${m.icon} ${m.name} <b data-mc="${m.id}">0</b></span>`)
       .join("")
       + `<span class="mat mat--assembler" title="組裝機（庫存）">🛠️ 組裝機 <b data-spare-mat>0</b></span>`
-      + `<span class="mat mat--lab" title="研究室（台數）">🔬 研究室 <b data-lab-mat>0</b></span>`;
+      + `<span class="mat mat--lab" title="拆解機（台數）">🪓 拆解機 <b data-lab-mat>0</b></span>`;
     this.matVals = {};
     this.matEls = {};
     this.els.inventory.querySelectorAll<HTMLElement>(".mat[data-mat]").forEach((el) => {
@@ -994,7 +987,12 @@ export class UI {
     this.settingsModalEl.innerHTML = `
       <div class="modal-card modal-card--settings" role="dialog" aria-modal="true" aria-label="設定">
         <div class="modal-head"><h3>設定</h3><button class="modal-close" data-act="closeSettings">關閉</button></div>
-        <div class="settings-list"><button class="btn-reset" data-act="reset">刪除存檔</button></div>
+        <div class="settings-list">
+          <button class="btn-sweep" data-act="exportSave">匯出存檔（下載到本機）</button>
+          <button class="btn-sweep" data-act="importSave">匯入存檔（從檔案載入）</button>
+          <p class="hint">匯出可在改版前備份；匯入會覆蓋目前存檔並重新整理。</p>
+          <button class="btn-reset" data-act="reset">刪除存檔</button>
+        </div>
       </div>`;
     this.settingsModalEl.hidden = false;
   }
@@ -1153,7 +1151,7 @@ export class UI {
   /** cores 掛在行或研究室；target 提供定位（slotIndex 會逐槽覆寫）。 */
   private renderCoreSlots(state: GameState, target: CoreTarget, cores: Array<Item | null>): string {
     if (!state.progress.coreUnlocked) return "";
-    const attrs = target.kind === "lab" ? `data-core-kind="lab"` : `data-core-kind="row" data-tab="${target.tab}" data-row="${target.row}"`;
+    const attrs = target.kind === "dismantler" ? `data-core-kind="dismantler"` : `data-core-kind="row" data-tab="${target.tab}" data-row="${target.row}"`;
     return `<div class="core-slots">${cores.map((core, index) => core
       ? `<div class="core-slot-wrap">
            <button class="core-slot core-slot--filled ${rarityClassName(core.rarity)}" data-act="openCore" ${attrs} data-slot-index="${index}" data-eqtip="core:${core.uid}" data-core-uid="${core.uid}" title="${core.name}">${core.icon}</button>
@@ -1174,7 +1172,7 @@ export class UI {
       if (!isRecipeUnlocked(state, def.id)) continue;
       if (def.kind === "refine") recipeGroups.refine.push(def);
       else if (def.kind === "equipment" || def.kind === "core") recipeGroups.equipment.push(def);
-      else if (def.kind === "assembler" || def.kind === "lab") recipeGroups.machine.push(def);
+      else if (def.kind === "assembler" || def.kind === "dismantler") recipeGroups.machine.push(def);
     }
     const tabs: Array<{ key: "equipment" | "refine" | "machine"; label: string }> = [
       { key: "equipment", label: "裝備" },
@@ -1406,30 +1404,32 @@ export class UI {
     const state = this.currentState;
     const coreUnlocked = state?.progress.coreUnlocked ?? false;
     const tracks = allAffixDefs(coreUnlocked);
-    const lab = state?.lab;
+    const d = state?.dismantler;
     this.els.research.innerHTML = `
       <div class="dism">
         <div class="dism-top">
-          <span class="dism-title">🔬 研究室 <b class="mb-own" data-dcount>${lab?.count ?? 0}</b></span>
+          <span class="dism-title">🪓 拆解機 <b class="mb-own" data-dcount>${d?.count ?? 0}</b></span>
           <span class="dism-status" data-dism-status></span>
         </div>
         <span class="cell-bar dism-bar"><i data-dism-bar></i></span>
-        ${this.renderCoreSlots(state as GameState, { kind: "lab", slotIndex: 0 }, lab?.cores ?? [null, null])}
-        <p class="hint">研究室由「研究室」配方生產（生產分頁）、自動運轉；台數見下方素材列。</p>
+        ${this.renderCoreSlots(state as GameState, { kind: "dismantler", slotIndex: 0 }, d?.cores ?? [null, null])}
+        <p class="hint">拆解機由「拆解機」配方生產、自動從倉庫拆未鎖非傳奇裝備 → 精髓／結晶（台數見下方素材列）。研究消耗這些通貨、點一下瞬間升階。核心「產能」會額外免費拆解。</p>
       </div>
-      <h3 class="research-sub">基底研究（拆解該類裝備後自動累積，永久提升基底與固定詞綴）</h3>
+      <h3 class="research-sub">基底研究（消耗結晶，永久 +20%／階 基底與固定詞綴）</h3>
       <div class="branks">
-        ${(["weapon", "armor", "accessory", "core"] as BaseResearchSlot[]).map((slot) => `<div class="brank" data-bslot="${slot}">
+        ${(["weapon", "armor", "accessory", "core"] as BaseResearchSlot[]).map((slot) => `<div class="brank rrow" data-bslot="${slot}">
           <span class="rt-name">${baseResearchLabel(slot)} <b class="rt-bonus" data-bbonus></b></span>
           <span class="rt-prog" data-bprog></span>
+          <button class="mc-mini-btn rt-btn" data-act="researchBase" data-arg="${slot}" data-bbtn>研究</button>
           <span class="cell-bar rt-bar"><i data-bfill></i></span>
         </div>`).join("")}
       </div>
-      <h3 class="research-sub">詞綴研究（T3 以上詞綴提供研究值）</h3>
+      <h3 class="research-sub">詞綴研究（消耗精髓，永久 +10%／階）</h3>
       <div class="rtracks">
-        ${tracks.map((t) => `<div class="rtrack" data-rstat="${t.stat}">
+        ${tracks.map((t) => `<div class="rtrack rrow" data-rstat="${t.stat}">
           <span class="rt-name">${t.label} <b class="rt-bonus" data-rt-bonus></b></span>
           <span class="rt-prog" data-rt-prog></span>
+          <button class="mc-mini-btn rt-btn" data-act="researchAffix" data-arg="${t.stat}" data-rbtn>研究</button>
           <span class="cell-bar rt-bar"><i data-rt-fill></i></span>
         </div>`).join("")}
       </div>`;
@@ -1438,11 +1438,11 @@ export class UI {
     this.labStatus = this.els.research.querySelector("[data-dism-status]");
     this.researchRows = [];
     this.els.research.querySelectorAll<HTMLElement>("[data-rstat]").forEach((row) => {
-      this.researchRows.push({ stat: row.dataset.rstat!, row, bonus: row.querySelector<HTMLElement>("[data-rt-bonus]")!, prog: row.querySelector<HTMLElement>("[data-rt-prog]")!, fill: row.querySelector<HTMLElement>("[data-rt-fill]")! });
+      this.researchRows.push({ stat: row.dataset.rstat!, row, bonus: row.querySelector<HTMLElement>("[data-rt-bonus]")!, prog: row.querySelector<HTMLElement>("[data-rt-prog]")!, fill: row.querySelector<HTMLElement>("[data-rt-fill]")!, btn: row.querySelector<HTMLButtonElement>("[data-rbtn]")! });
     });
     this.baseRows = [];
     this.els.research.querySelectorAll<HTMLElement>("[data-bslot]").forEach((row) => {
-      this.baseRows.push({ slot: row.dataset.bslot as BaseResearchSlot, row, bonus: row.querySelector<HTMLElement>("[data-bbonus]")!, prog: row.querySelector<HTMLElement>("[data-bprog]")!, fill: row.querySelector<HTMLElement>("[data-bfill]")! });
+      this.baseRows.push({ slot: row.dataset.bslot as BaseResearchSlot, row, bonus: row.querySelector<HTMLElement>("[data-bbonus]")!, prog: row.querySelector<HTMLElement>("[data-bprog]")!, fill: row.querySelector<HTMLElement>("[data-bfill]")!, btn: row.querySelector<HTMLButtonElement>("[data-bbtn]")! });
     });
   }
 

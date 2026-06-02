@@ -187,7 +187,8 @@ export type RecipeId =
   | "accessory"
   | "core"
   | "assembler"
-  | "lab";
+  | "lab"
+  | "dismantler";
 
 /** 生產行：一條生產線。recipe 為 null 表示空行。cores 掛在整行、效果套用該線。
  *  filter 為每行獨立（僅會 roll 物品的配方有意義，決定產物進背包或倉庫）。 */
@@ -218,11 +219,19 @@ export interface ProductionState {
   tabs: ProductionTab[];
 }
 
-/** 研究室（取代拆解機）：以台數計，只有運轉／停開關與 2 核心插槽。 */
+/** 研究室（已停用、保留供存檔相容；不再運轉、不顯示）。 */
 export interface LabState {
   count: number;
   active: boolean;
   progress: number;
+  cores: [CoreItem | null, CoreItem | null];
+}
+
+/** 拆解機：以台數計，自動從倉庫拆裝備產出精髓／結晶。核心產能＝額外免費拆解。 */
+export interface DismantlerState {
+  count: number;
+  progress: number;
+  productivity: number; // 產能累積器，達 1 觸發一次免費拆解（不消耗裝備）
   cores: [CoreItem | null, CoreItem | null];
 }
 
@@ -277,6 +286,10 @@ export interface GameState {
   production: ProductionState;
   spareAssemblers: number;
   lab: LabState;
+  dismantler: DismantlerState;
+  /** 拆解產出的通貨：詞綴精髓（每 stat 一種）與基底結晶（每槽一種）。研究瞬間消耗之。 */
+  essences: Record<string, number>;
+  crystals: Record<BaseResearchSlot, number>;
   /** 背包整理過濾器（每類型一組）：「整理背包」會把現有主背包不符的收進倉庫。 */
   bagFilters: Record<ItemSlot, FilterEntry[]>;
   equipmentInv: Item[];
