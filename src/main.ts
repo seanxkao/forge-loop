@@ -26,6 +26,7 @@ import {
   adjustRowStep,
 } from "./game/production.ts";
 import { equip, unequip, toggleItemLock, toWarehouse, fromWarehouse } from "./game/equipment.ts";
+import { inBattle, queueLoadoutAction, effectiveRuneSelection, cancelPendingEquip, cancelPendingVacate } from "./game/loadout.ts";
 import { socketCore, unsocketCore } from "./game/machineCores.ts";
 import { tickLab, toggleLabActive, researchBase } from "./game/research.ts";
 import { BattleRenderer } from "./render/battle.ts";
@@ -50,6 +51,7 @@ const fx: CombatFx = {
   onEnemyAttack: (d, blocked) => { if (!ui.isBattleHidden()) renderer.enemyAttacked(d, blocked); },
   onDrop: (mat, q) => { if (!ui.isBattleHidden()) renderer.drop(`+${q}${MATERIALS[mat]?.icon ?? ""}`); },
   onStageClear: () => ui.refresh(state),
+  onHeroDied: () => ui.refresh(state), // 戰敗重來會套用待辦換裝／符文，刷新清除待套用標示
 };
 
 function coresOf(s: GameState, target: CoreTarget): CoreSlots | null {
@@ -90,13 +92,23 @@ const ui = new UI(root, canvas, {
   onRemoveTab: (tab) => { removeProductionTab(state, tab); ui.refresh(state); },
   onToggleLab: () => { toggleLabActive(state); ui.refresh(state); },
   onEquip: (uid) => {
-    equip(state, uid);
-    if (!state.progress.equippedGuideSeen && (state.equipped.weapon || state.equipped.armor || state.equipped.accessory.some(Boolean))) {
-      state.progress.equippedGuideSeen = true;
+    if (inBattle(state)) {
+      queueLoadoutAction(state, { kind: "equip", uid });
+    } else {
+      equip(state, uid);
+      if (!state.progress.equippedGuideSeen && (state.equipped.weapon || state.equipped.armor || state.equipped.accessory.some(Boolean))) {
+        state.progress.equippedGuideSeen = true;
+      }
     }
     ui.refresh(state);
   },
-  onUnequip: (slot) => { unequip(state, slot); ui.refresh(state); },
+  onUnequip: (slot) => {
+    if (inBattle(state)) queueLoadoutAction(state, { kind: "unequip", slot });
+    else unequip(state, slot);
+    ui.refresh(state);
+  },
+  onCancelPendingEquip: (uid) => { cancelPendingEquip(state, uid); ui.refresh(state); },
+  onCancelPendingVacate: (slot) => { cancelPendingVacate(state, slot); ui.refresh(state); },
   onMoveAllToWarehouse: () => { for (const eq of [...state.equipmentInv]) toWarehouse(state, eq.uid); ui.refresh(state); },
   onToggleItemLock: (uid) => { toggleItemLock(state, uid); ui.refresh(state); },
   onToWarehouse: (uid) => { toWarehouse(state, uid); ui.refresh(state); },
@@ -142,12 +154,18 @@ const ui = new UI(root, canvas, {
   },
   onResearchBase: (slot) => { researchBase(state, slot); ui.refresh(state); },
   onSelectRune: (id) => {
-    state.runes.selected = state.runes.selected === id ? null : id;
+    if (inBattle(state)) {
+      const eff = effectiveRuneSelection(state);
+      queueLoadoutAction(state, { kind: "rune", id: eff.id === id ? null : id });
+    } else {
+      state.runes.selected = state.runes.selected === id ? null : id;
+    }
     ui.refresh(state);
     save(state);
   },
   onClearRune: () => {
-    state.runes.selected = null;
+    if (inBattle(state)) queueLoadoutAction(state, { kind: "rune", id: null });
+    else state.runes.selected = null;
     ui.refresh(state);
     save(state);
   },

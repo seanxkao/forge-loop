@@ -487,14 +487,24 @@ body {
 .rune-cell:hover {
   border-color: var(--accent);
 }
-.rune-cell.sel {
+/* 正在套用（當前生效）：紫色實心強調，最明顯 */
+.rune-cell.active {
   border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 18%, var(--panel2));
-  box-shadow: inset 0 0 0 1px rgba(124, 92, 255, 0.35);
+  background: color-mix(in srgb, var(--accent) 22%, var(--panel2));
+  box-shadow: inset 0 0 0 2px var(--accent), 0 0 16px rgba(124, 92, 255, 0.35);
 }
 .rune-socket--filled .rune-socket__icon,
-.rune-cell.sel .rune-cell__icon {
+.rune-cell.active .rune-cell__icon {
   box-shadow: 0 0 18px rgba(124, 92, 255, 0.32);
+}
+/* 下場套用（戰鬥中預排）：金色虛線框、無底色，明顯度低於「正在套用」 */
+.rune-cell.pending {
+  border-style: dashed;
+  border-color: var(--gold);
+}
+.rune-cell.pending .rune-cell__state {
+  color: var(--gold);
+  font-weight: 800;
 }
 .rune-socket--filled .rune-socket__icon {
   color: #fff;
@@ -561,6 +571,7 @@ body {
   border-radius: 6px;
   padding: 6px 8px;
   font-size: 12px;
+  position: relative;
 }
 .eq-slot .eq-name,
 .eq-slot .eq-stats {
@@ -1110,6 +1121,49 @@ body {
   font-weight: 600;
   padding-right: 28px;
   line-height: 1.35;
+}
+/* 下場套用／卸下：半透明暗色遮罩 ＋ 無框文字 ＋ 紅色取消鈕（共用於背包卡與裝備格） */
+.pend-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  background: rgba(0, 0, 0, 0.62);
+  border-radius: 6px;
+  pointer-events: auto; /* 擋住卡片其他操作（裝備、倉庫、上鎖） */
+}
+.pend-badge {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  pointer-events: none;
+  text-align: center;
+}
+.pend-badge__text {
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+}
+.pend-cancel {
+  pointer-events: auto;
+  background: var(--bad);
+  color: #fff;
+  border: none;
+  border-radius: 999px;
+  padding: 5px 14px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+}
+.pend-cancel:hover {
+  filter: brightness(1.1);
 }
 .ii-stats {
   color: var(--muted);

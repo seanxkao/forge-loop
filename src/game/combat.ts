@@ -6,6 +6,7 @@ import { materialDropMultiplier } from "./reincarnation.ts";
 import { runeBlockReductionBonus } from "./runes.ts";
 import { coerceUnlockedStageId, unlockAfterStageClear } from "./unlocks.ts";
 import { grantLegendaryCoreReward } from "./legendaryCores.ts";
+import { applyPendingLoadout } from "./loadout.ts";
 
 function effectiveDefense(defense: number, penPct: number): number {
   const pen = Math.max(0, Math.min(1, penPct));
@@ -37,6 +38,7 @@ export function currentEnemyDef(state: GameState): EnemyDef {
 }
 
 export function startStage(state: GameState, stageId: string): void {
+  applyPendingLoadout(state); // 下場戰鬥開始：套用戰鬥中暫存的換裝／符文
   const c = state.combat;
   c.stageId = coerceUnlockedStageId(state, stageId);
   c.waveIndex = 0;
@@ -110,6 +112,7 @@ function rollDrops(state: GameState, enemy: EnemyDef, fx: CombatFx): void {
 }
 
 function heroDeath(state: GameState, fx: CombatFx): void {
+  applyPendingLoadout(state); // 戰敗重來＝新一場戰鬥：套用暫存換裝／符文
   const c = state.combat;
   c.waveIndex = 0;
   c.enemyIndex = 0;

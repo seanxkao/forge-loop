@@ -252,6 +252,12 @@ export interface RuneState {
   selected: RuneId | null;
 }
 
+/** 戰鬥中更改裝備／符文的待辦動作：下場戰鬥開始時才依序套用。 */
+export type LoadoutAction =
+  | { kind: "equip"; uid: number; slot?: EquipSlotId } // slot＝排入當下決定的目標槽，固定不重算
+  | { kind: "unequip"; slot: EquipSlotId }
+  | { kind: "rune"; id: RuneId | null };
+
 export interface ProgressState {
   unlockedStageCount: number;
   coreUnlocked: boolean;
@@ -285,6 +291,8 @@ export interface GameState {
   baseResearch: Record<BaseResearchSlot, number>;
   baseResearchPoints: Record<BaseResearchSlot, number>;
   runes: RuneState;
+  /** 戰鬥中暫存的換裝／符文更改，下場戰鬥開始時套用。 */
+  pendingLoadout: LoadoutAction[];
   reincarnation: ReincarnationState;
   progress: ProgressState;
   nextEquipId: number;

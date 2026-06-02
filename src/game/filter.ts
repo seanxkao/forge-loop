@@ -36,6 +36,8 @@ export function organizeBag(state: GameState): void {
   for (let i = state.equipmentInv.length - 1; i >= 0; i -= 1) {
     const item = state.equipmentInv[i];
     if (item.locked) continue;
+    // 待穿裝備鎖定：整理背包不得清除
+    if (state.pendingLoadout.some((a) => a.kind === "equip" && a.uid === item.uid)) continue;
     const entries = state.bagFilters[item.slot] ?? [];
     if (entries.length === 0) continue;
     if (!passesFilterEntries(entries, item)) {

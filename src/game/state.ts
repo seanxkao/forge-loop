@@ -39,6 +39,7 @@ export function createInitialState(): GameState {
       owned: [...INITIAL_RUNES],
       selected: null,
     },
+    pendingLoadout: [],
     reincarnation: {
       cycle: 1,
       buffs: { research: 0, materials: 0, power: 0 },

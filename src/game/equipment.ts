@@ -40,6 +40,27 @@ export function equip(state: GameState, uid: number): void {
   state.equipped[eq.slot] = eq;
 }
 
+/** 把背包某件裝備穿入「指定槽位」（取代該槽原有者）；類型需相容。供待辦套用精準放入。 */
+export function equipIntoSlot(state: GameState, uid: number, slot: EquipSlotId): void {
+  const idx = state.equipmentInv.findIndex((item) => item.uid === uid && item.kind === "equipment");
+  if (idx < 0) return;
+  const eq = state.equipmentInv[idx] as Equipment;
+  const isAccessory = slot === "accessory1" || slot === "accessory2";
+  if (isAccessory ? eq.slot !== "accessory" : eq.slot !== slot) return;
+  state.equipmentInv.splice(idx, 1);
+  if (isAccessory) {
+    const ai = slot === "accessory1" ? 0 : 1;
+    const prev = state.equipped.accessory[ai];
+    if (prev) state.equipmentInv.push(prev);
+    state.equipped.accessory[ai] = eq;
+  } else {
+    const wslot = slot as "weapon" | "armor";
+    const prev = state.equipped[wslot];
+    if (prev) state.equipmentInv.push(prev);
+    state.equipped[wslot] = eq;
+  }
+}
+
 export function unequip(state: GameState, slot: EquipSlotId): void {
   if (slot === "accessory1" || slot === "accessory2") {
     const index = slot === "accessory1" ? 0 : 1;
@@ -76,6 +97,8 @@ function refundCost(state: GameState, cost: Record<string, number>): void {
 }
 
 export function discard(state: GameState, uid: number): void {
+  // 待穿裝備鎖定：不可刪除
+  if (state.pendingLoadout.some((a) => a.kind === "equip" && a.uid === uid)) return;
   const item = removeFromBags(state, uid);
   if (!item) return;
   if (item.kind === "equipment") {
@@ -87,6 +110,8 @@ export function discard(state: GameState, uid: number): void {
 }
 
 export function toWarehouse(state: GameState, uid: number): void {
+  // 待穿裝備鎖定：不可移入倉庫
+  if (state.pendingLoadout.some((a) => a.kind === "equip" && a.uid === uid)) return;
   const idx = state.equipmentInv.findIndex((item) => item.uid === uid);
   if (idx < 0) return;
   state.warehouseInv.push(state.equipmentInv.splice(idx, 1)[0]);

@@ -30,6 +30,7 @@ import { clampTooltipPosition } from "./tooltipPosition.ts";
 import { affixBonusMultiplier, countVariableAffixes } from "../game/itemAffixes.ts";
 import { DISMANTLE_CYCLE, stageCost, dismantleableCount, baseStageCost, baseBonus, baseItemsAvailable } from "../game/research.ts";
 import { estimateFilterMatches } from "../game/filter.ts";
+import { effectiveRuneSelection, pendingVacatedSlots, resolvePendingSlots } from "../game/loadout.ts";
 
 /** 核心插槽目標：生產行（tab,row）或研究室。 */
 export type CoreTarget =
@@ -55,6 +56,8 @@ export interface UICallbacks {
   onToggleLab(): void;
   onEquip(uid: number): void;
   onUnequip(slot: EquipSlotId): void;
+  onCancelPendingEquip(uid: number): void;
+  onCancelPendingVacate(slot: EquipSlotId): void;
   onMoveAllToWarehouse(): void;
   onToggleItemLock(uid: number): void;
   onToWarehouse(uid: number): void;
@@ -541,6 +544,8 @@ export class UI {
       // ---- 背包 ----
       case "equip": this.cb.onEquip(Number(arg)); break;
       case "unequip": this.cb.onUnequip(arg as EquipSlotId); break;
+      case "cancelPendingEquip": this.cb.onCancelPendingEquip(Number(arg)); break;
+      case "cancelPendingVacate": this.cb.onCancelPendingVacate(arg as EquipSlotId); break;
       case "moveAllToWarehouse": this.cb.onMoveAllToWarehouse(); break;
       case "toggleLock": this.cb.onToggleItemLock(Number(arg)); break;
       case "toWare": this.cb.onToWarehouse(Number(arg)); break;
@@ -879,22 +884,28 @@ export class UI {
   }
 
   private renderRunes(state: GameState): void {
-    const selected = state.runes.selected;
+    const eff = effectiveRuneSelection(state);
+    const active = state.runes.selected; // 當前實際生效（正在套用）
+    const pendingClear = eff.pending && eff.id === null; // 戰鬥中預排卸下符文
     const cells = state.runes.owned
       .map((id) => {
         const rune = RUNE_DEFS[id];
-        const isSelected = selected === id;
-        return `<button class="rune-cell${isSelected ? " sel" : ""}" data-act="selectRune" data-arg="${id}">
+        const isActive = active === id;
+        const isPending = eff.pending && eff.id === id && active !== id; // 下場要換成這顆
+        const stateText = isActive
+          ? (pendingClear ? "正在套用 · 下場卸下" : "正在套用")
+          : isPending ? "下場套用" : "點擊配置";
+        return `<button class="rune-cell${isActive ? " active" : ""}${isPending ? " pending" : ""}" data-act="selectRune" data-arg="${id}">
           <span class="rune-cell__icon">${rune.icon}</span>
           <span class="rune-cell__name">${rune.name}</span>
           <span class="rune-cell__summary">${rune.summary}</span>
           <span class="rune-cell__drawback">${rune.drawback}</span>
-          <span class="rune-cell__state">${isSelected ? "已配置" : "點擊配置"}</span>
+          <span class="rune-cell__state">${stateText}</span>
         </button>`;
       })
       .join("");
-    const socket = selected
-      ? `<button class="rune-socket rune-socket--filled rune-socket--button" data-act="clearRune" title="卸下符文"><span class="rune-socket__icon">${RUNE_DEFS[selected].icon}</span></button>`
+    const socket = active
+      ? `<button class="rune-socket rune-socket--filled rune-socket--button" data-act="clearRune" title="卸下符文"><span class="rune-socket__icon">${RUNE_DEFS[active].icon}</span></button>`
       : `<div class="rune-socket"><span class="rune-socket__icon">□</span></div>`;
     this.els.runes.innerHTML = `
       <div class="rune-layout">
@@ -1017,9 +1028,15 @@ export class UI {
       { id: "accessory1", label: "飾品 1", eq: state.equipped.accessory[0] },
       { id: "accessory2", label: "飾品 2", eq: state.equipped.accessory[1] },
     ];
+    const pendingVacate = pendingVacatedSlots(state);
     this.els.equipped.innerHTML = slots.map(({ id, label, eq }) => {
       if (!eq) return `<div class="eq-slot empty"><span class="slot-tag">${label}</span>未裝備</div>`;
-      return `<div class="eq-slot ${rarityClassName(eq.rarity)}" data-eqtip="eq:${id}" data-eqslot="${id}">
+      const willUnequip = pendingVacate.has(id);
+      const pendingBadge = willUnequip
+        ? `<div class="pend-overlay"></div><div class="pend-badge"><span class="pend-badge__text">下場卸下</span><button class="pend-cancel" data-act="cancelPendingVacate" data-arg="${id}">取消</button></div>`
+        : "";
+      return `<div class="eq-slot ${rarityClassName(eq.rarity)}${willUnequip ? " is-pending-unequip" : ""}" data-eqtip="eq:${id}" data-eqslot="${id}">
+        ${pendingBadge}
         <div class="eq-slot__top">
           <span class="slot-tag">${label}</span>
           <button class="eq-x" data-act="unequip" data-arg="${id}" title="卸下">✕</button>
@@ -1316,6 +1333,7 @@ export class UI {
     const filteredItems = this.sortBagItems(state, state.equipmentInv.filter((item) => this.matchesBagFilter(item)));
     if (state.equipmentInv.length === 0) { this.els.equipInv.innerHTML = `<p class="empty-note">尚無裝備，去生產線做吧。</p>`; return; }
     const head = `<div class="inv-head"><span>${filteredItems.length} / ${state.equipmentInv.length} 件</span></div>`;
+    const pendingSlotByUid = resolvePendingSlots(state).slotByUid;
     let flashedEquipButton = false;
     const items = filteredItems.slice(0, INV_RENDER_CAP).map((eq) => {
       const shouldFlashEquip = eq.kind === "equipment"
@@ -1323,7 +1341,13 @@ export class UI {
         && !state.progress.equippedGuideSeen
         && !flashedEquipButton;
       if (shouldFlashEquip) flashedEquipButton = true;
-      return `<div class="inv-item ${rarityClassName(eq.rarity)}" data-uid="${eq.uid}" data-bag="main" data-eqtip="main:${eq.uid}">
+      const pendingSlot = pendingSlotByUid.get(eq.uid);
+      const isPending = pendingSlot !== undefined;
+      const pendingBadge = isPending
+        ? `<div class="pend-overlay"></div><div class="pend-badge"><span class="pend-badge__text">下場戰鬥套用<br>→ ${equipSlotLabel(pendingSlot)}</span><button class="pend-cancel" data-act="cancelPendingEquip" data-arg="${eq.uid}">取消</button></div>`
+        : "";
+      return `<div class="inv-item ${rarityClassName(eq.rarity)}${isPending ? " is-pending" : ""}" data-uid="${eq.uid}" data-bag="main" data-eqtip="main:${eq.uid}">
+        ${pendingBadge}
         <button class="item-lock${eq.locked ? " locked" : ""}" data-act="toggleLock" data-arg="${eq.uid}" title="${eq.locked ? "解鎖" : "上鎖"}">${eq.locked ? "鎖" : "開"}</button>
         <span class="ii-name">${eq.icon} ${eq.name}${eq.kind === "core" ? " <span class=\"slot-tag\">核心</span>" : ""} <span class="ii-cnt">${countVariableAffixes(eq)}詞</span></span>
         <span class="ii-stats">${describeEquip(eq, state, false)}</span>
@@ -1683,6 +1707,16 @@ const SORT_OPTIONS: Record<BagSortCat, ItemSortKey[]> = {
   accessory: ["atk", "critChance", "critMult", "hp", "haste", "materialDropPct", "rarity", "affixes"],
   core: ["productivity", "machineSpeedPct", "materialRefundPct", "upgradeTierChance", "rarityBonus", "luckyTierChance", "weightPhysical", "weightCrit", "weightSpeed", "weightLife", "weightDefense", "weightCraft", "rarity", "affixes"],
 };
+
+const EQUIP_SLOT_LABEL: Record<EquipSlotId, string> = {
+  weapon: SLOT_NAME.weapon,
+  armor: SLOT_NAME.armor,
+  accessory1: "飾品 1",
+  accessory2: "飾品 2",
+};
+function equipSlotLabel(slot: EquipSlotId): string {
+  return EQUIP_SLOT_LABEL[slot];
+}
 
 function sortKeyLabel(key: ItemSortKey): string {
   if (key === "physicalDamage") return "物理 DPS";
