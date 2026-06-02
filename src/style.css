@@ -271,7 +271,7 @@ body {
   border-color: var(--accent);
 }
 .main-battle.battle-collapsed .canvas-wrap {
-  display: none;
+  background: #000;
 }
 .canvas-wrap {
   width: 100%;
@@ -291,6 +291,9 @@ body {
   image-rendering: pixelated;
   display: block;
 }
+.main-battle.battle-collapsed #battle {
+  visibility: hidden;
+}
 
 .stages {
   display: grid;
@@ -304,15 +307,15 @@ body {
   align-content: start;
 }
 .battle-actions {
-  position: absolute;
-  top: 12px;
-  left: 12px;
-  right: 12px;
-  z-index: 2;
+  flex: 0 0 auto;
+  margin: 0 0 8px;
+}
+.battle-toolbar {
   display: flex;
-  justify-content: space-between;
   gap: 8px;
-  pointer-events: none;
+  flex-wrap: wrap;
+  margin: 0;
+  padding-left: 4px;
 }
 .battle-options {
   position: absolute;
@@ -335,6 +338,11 @@ body {
 }
 .battle-next-btn:hover {
   filter: brightness(1.08);
+}
+.battle-next-btn:disabled {
+  cursor: default;
+  opacity: 0.38;
+  filter: none;
 }
 .battle-check {
   display: inline-flex;

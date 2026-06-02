@@ -3,7 +3,7 @@ import { deriveLegacyItemRarity } from "./rarity.ts";
 import { SAVE_VERSION, createInitialState } from "./state.ts";
 import { normalizeUnlockProgress } from "./unlocks.ts";
 import { countVariableAffixes } from "./itemAffixes.ts";
-import { affixLabel } from "./affixMeta.ts";
+import { affixLabel, affixTags, isPctAffix } from "./affixMeta.ts";
 import { INITIAL_RUNES, RUNE_DEFS } from "./runes.ts";
 import { CORE_FIXED_AFFIX, LEGENDARY_CORE_LUCKY_AFFIX } from "./coreContent.ts";
 
@@ -33,11 +33,18 @@ function allStoredItems(state: GameState): Item[] {
   return items;
 }
 
-export function save(state: GameState): void {
+function saveReplacer(key: string, value: unknown): unknown {
+  if (key === "label" || key === "pct" || key === "tags") return undefined;
+  return value;
+}
+
+export function save(state: GameState): boolean {
   try {
-    localStorage.setItem(KEY, JSON.stringify(state));
+    localStorage.setItem(KEY, JSON.stringify(state, saveReplacer));
+    return true;
   } catch {
     // localStorage 不可用 / 配額滿，靜默忽略
+    return false;
   }
 }
 
@@ -186,6 +193,8 @@ function normalizeLegacyAffixLabels(state: GameState): void {
         affix.stat = WEAPON_HASTE_STAT;
       }
       affix.label = affixLabel(affix.stat);
+      affix.pct = isPctAffix(affix.stat);
+      affix.tags = affixTags(affix.stat);
     }
   }
 }
@@ -233,6 +242,13 @@ function normalizeProductionRows(state: GameState): void {
   for (const tab of state.production.tabs) {
     for (const row of tab.rows) {
       if (!row.reserved || typeof row.reserved !== "object") row.reserved = {};
+      if ((row.recipe as string | null) === "tan") row.recipe = "smelt";
+      if ("hide" in row.reserved || "leather" in row.reserved) {
+        row.reserved.ore = (row.reserved.ore ?? 0) + (row.reserved.hide ?? 0);
+        row.reserved.ingot = (row.reserved.ingot ?? 0) + (row.reserved.leather ?? 0);
+        delete row.reserved.hide;
+        delete row.reserved.leather;
+      }
       if (typeof row.auto !== "boolean") row.auto = true;
       if (typeof row.queue !== "number") row.queue = 0;
       if (typeof row.paused !== "boolean") row.paused = false;
@@ -240,6 +256,14 @@ function normalizeProductionRows(state: GameState): void {
       if (typeof row.orderStep !== "number" || row.orderStep < 1) row.orderStep = 1;
     }
   }
+}
+
+function normalizeLegacyLeatherMaterials(state: GameState): void {
+  const inv = state.inventory as Record<string, number | undefined>;
+  inv.ore = (inv.ore ?? 0) + (inv.hide ?? 0);
+  inv.ingot = (inv.ingot ?? 0) + (inv.leather ?? 0);
+  delete inv.hide;
+  delete inv.leather;
 }
 
 function normalizeLegacyLegendaryFlags(state: GameState): void {
@@ -355,6 +379,7 @@ export function load(): GameState {
     normalizeRunes(migrated);
     normalizeLegacyAffixLabels(migrated);
     normalizeLegacyBlockStat(migrated);
+    normalizeLegacyLeatherMaterials(migrated);
     normalizeFilterEntries(migrated);
     normalizeProductionRows(migrated);
     normalizeUnlockProgress(migrated);

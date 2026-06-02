@@ -46,8 +46,8 @@ export const CORE_MACHINE: MachineDef = {
   id: "coreLathe",
   name: "核心機",
   icon: "◈",
-  buildCost: { ingot: 12, leather: 12, crystal: 12 },
-  input: { ingot: 2, leather: 2, crystal: 2 },
+  buildCost: { ingot: 24, crystal: 12 },
+  input: { ingot: 4, crystal: 2 },
   output: {},
   cycleTime: 2,
 };
@@ -56,7 +56,7 @@ export const CORE_RECIPE: CoreRecipeDef = {
   id: "core",
   name: "核心",
   icon: "◈",
-  cost: { ingot: 2, leather: 2, crystal: 2 },
+  cost: { ingot: 4, crystal: 2 },
   fixedAffix: CORE_FIXED_AFFIX,
   affixPool: CORE_AFFIX_POOL,
 };

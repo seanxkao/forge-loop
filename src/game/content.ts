@@ -40,10 +40,8 @@ export const GRID_HEIGHT = 3;
 
 export const MATERIALS: Record<string, MaterialDef> = {
   ore: { id: "ore", name: "礦石", kind: "raw", icon: "🪨" },
-  hide: { id: "hide", name: "獸皮", kind: "raw", icon: "🟫" },
   shard: { id: "shard", name: "晶石", kind: "raw", icon: "🔹" },
   ingot: { id: "ingot", name: "金屬錠", kind: "intermediate", icon: "🟧" },
-  leather: { id: "leather", name: "皮革", kind: "intermediate", icon: "🟤" },
   crystal: { id: "crystal", name: "精晶", kind: "intermediate", icon: "💠" },
 };
 
@@ -64,7 +62,7 @@ export const RECIPES: Record<string, RecipeDef> = {
     name: "甲",
     icon: "🛡️",
     slot: "armor",
-    cost: { leather: 4 },
+    cost: { ingot: 4 },
     base: { hp: 80, def: 3 },
     affixPool: affixPool("armor"),
   },
@@ -99,12 +97,11 @@ export interface ProdRecipeDef {
 }
 
 /** 組裝機建造成本：直接吃三種原料（開局靠掉落即可加開）。研究室吃中間材料。待平衡。 */
-export const ASSEMBLER_COST: Record<string, number> = { ore: 8, hide: 8, shard: 8 };
-export const LAB_COST: Record<string, number> = { ingot: 8, leather: 8, crystal: 8 };
+export const ASSEMBLER_COST: Record<string, number> = { ore: 16, shard: 8 };
+export const LAB_COST: Record<string, number> = { ingot: 16, crystal: 8 };
 
 export const PROD_RECIPES: Record<RecipeId, ProdRecipeDef> = {
   smelt: { id: "smelt", name: "熔煉", icon: "🔥", kind: "refine", input: { ore: 2 }, output: { ingot: 1 }, cycleTime: 6, unlock: "start" },
-  tan: { id: "tan", name: "鞣製", icon: "🧵", kind: "refine", input: { hide: 2 }, output: { leather: 1 }, cycleTime: 6, unlock: "start" },
   crystallize: { id: "crystallize", name: "晶化", icon: "⚗️", kind: "refine", input: { shard: 2 }, output: { crystal: 1 }, cycleTime: 6, unlock: "zone1" },
   weapon: { id: "weapon", name: "武器", icon: RECIPES.weapon.icon, kind: "equipment", slot: "weapon", input: RECIPES.weapon.cost, cycleTime: 4, unlock: "start" },
   armor: { id: "armor", name: "防具", icon: RECIPES.armor.icon, kind: "equipment", slot: "armor", input: RECIPES.armor.cost, cycleTime: 4, unlock: "start" },
@@ -117,7 +114,7 @@ export const PROD_RECIPES: Record<RecipeId, ProdRecipeDef> = {
 
 // ---- 關卡：20 關，5 區 × 4 關（第 4 關為魔王） ----
 
-const RAWS = ["ore", "hide", "shard"]; // 三種素材所有關卡都掉
+const RAWS = ["ore", "shard"]; // 兩種素材所有關卡都掉
 const ZONE = [
   { area: "礦坑帶", enemy: "史萊姆", icon: "🟢", boss: "史萊姆王" },
   { area: "荒野帶", enemy: "野狼", icon: "🐺", boss: "狼王" },
@@ -167,7 +164,10 @@ const BOSS_INTERVAL = [1.4, 0.65, 1.25, 1.8, 0.95];
 function buildDrops(stageIndex: number, isBoss: boolean): DropDef[] {
   const base = Math.max(1, Math.round(1.6 ** stageIndex));
   const m = base * (isBoss ? 10 : 1);
-  return RAWS.map((mat) => ({ material: mat, min: m, max: m * 2, chance: 1 }));
+  return RAWS.map((mat) => {
+    const qty = mat === "ore" ? m * 2 : m;
+    return { material: mat, min: qty, max: qty * 2, chance: 1 };
+  });
 }
 
 function makeWaves(

@@ -132,6 +132,7 @@ function importSave(): void {
 
 const ui = new UI(root, canvas, {
   onSelectStage: (id) => { startStage(state, id); ui.refresh(state); },
+  onRestartStage: () => { startStage(state, state.combat.stageId); ui.refresh(state); },
   onToggleAutoAdvanceNext: () => { state.progress.autoAdvanceNext = !state.progress.autoAdvanceNext; ui.refresh(state); },
   onPlaceMachine: (tab, recipe) => { placeMachine(state, tab, recipe); ui.refresh(state); },
   onAddMachine: (tab, row, qty) => {
@@ -251,6 +252,7 @@ const ui = new UI(root, canvas, {
     startStage(state, state.combat.stageId);
     ui.refresh(state);
   },
+  onSaveNow: () => save(state),
   onExportSave: () => { void exportSave(); },
   onImportSave: () => { importSave(); },
 });

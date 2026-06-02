@@ -40,6 +40,7 @@ export type CoreTarget =
 
 export interface UICallbacks {
   onSelectStage(id: string): void;
+  onRestartStage(): void;
   onToggleAutoAdvanceNext(): void;
   onPlaceMachine(tab: number, recipe: RecipeId): void;
   onAddMachine(tab: number, row: number, qty: number): void;
@@ -80,6 +81,7 @@ export interface UICallbacks {
   onVictoryContinue(): void;
   onReincarnate(buff: ReincarnationBuff): void;
   onReset(): void;
+  onSaveNow(): boolean;
   onExportSave(): void;
   onImportSave(): void;
 }
@@ -138,7 +140,6 @@ export class UI {
   private tabBtnEls: Record<string, HTMLElement> = {};
 
   private els!: {
-    battleToggle: HTMLElement;
     battleActions: HTMLElement;
     battleOptions: HTMLElement;
     battleInfoTabs: HTMLElement;
@@ -214,16 +215,15 @@ export class UI {
       </div>
       <div class="main">
         <section class="panel main-battle">
-          <button class="battle-toggle" data-act="toggleBattle" data-zone="battleToggle">隱藏戰鬥</button>
-          <div class="canvas-wrap">
           <div class="battle-actions" data-zone="battleActions"></div>
-          <div class="battle-options" data-zone="battleOptions"></div>
-        </div>
-        <div class="battle-subtabs" data-zone="battleInfoTabs"></div>
-        <div class="hero" data-zone="hero"></div>
-        <div class="runes-panel" data-zone="runes"></div>
-        <div class="equipped" data-zone="equipped"></div>
-      </section>
+          <div class="canvas-wrap">
+            <div class="battle-options" data-zone="battleOptions"></div>
+          </div>
+          <div class="battle-subtabs" data-zone="battleInfoTabs"></div>
+          <div class="hero" data-zone="hero"></div>
+          <div class="runes-panel" data-zone="runes"></div>
+          <div class="equipped" data-zone="equipped"></div>
+        </section>
         <aside class="drawer" data-drawer>
           <section class="panel-section" data-panel="prod">
             <h2>生產</h2>
@@ -279,7 +279,6 @@ export class UI {
 
     const z = (n: string) => this.root.querySelector(`[data-zone="${n}"]`) as HTMLElement;
     this.els = {
-      battleToggle: z("battleToggle"),
       battleActions: z("battleActions"),
       battleOptions: z("battleOptions"),
       battleInfoTabs: z("battleInfoTabs"),
@@ -460,6 +459,7 @@ export class UI {
         break;
       case "openSettings": this.settingsModalOpen = true; this.renderSettingsModal(); break;
       case "closeSettings": this.settingsModalOpen = false; this.renderSettingsModal(); break;
+      case "saveNow": this.showToast(this.cb.onSaveNow() ? "已存檔" : "存檔失敗"); break;
       case "exportSave": this.cb.onExportSave(); break;
       case "importSave": this.cb.onImportSave(); break;
       case "tab":
@@ -474,6 +474,7 @@ export class UI {
         this.renderStageModal(this.currentState);
         this.cb.onSelectStage(arg);
         break;
+      case "restartStage": this.cb.onRestartStage(); break;
       case "openStageMap": this.stageModalOpen = true; this.renderStageModal(this.currentState); break;
       case "closeStageMap": this.stageModalOpen = false; this.renderStageModal(this.currentState); break;
       case "toggleAutoNext": this.cb.onToggleAutoAdvanceNext(); break;
@@ -1003,17 +1004,19 @@ export class UI {
   private applyBattleHidden(): void {
     const panel = this.root.querySelector(".main-battle");
     if (panel) panel.classList.toggle("battle-collapsed", this.battleHidden);
-    this.els.battleToggle.textContent = this.battleHidden ? "顯示戰鬥" : "隱藏戰鬥";
   }
 
   private renderBattleActions(state: GameState): void {
     const currentIndex = stageIndexById(state.combat.stageId);
     const nextIndex = currentIndex + 1;
     const canAdvance = currentIndex >= 0 && nextIndex < STAGES.length && nextIndex < state.progress.unlockedStageCount;
-    this.els.battleActions.innerHTML = canAdvance
-      ? `<button class="battle-next-btn" data-act="openStageMap">地圖</button>
-         <button class="battle-next-btn" data-act="stage" data-arg="${STAGES[nextIndex].id}">前往下一關</button>`
-      : `<button class="battle-next-btn" data-act="openStageMap">地圖</button>`;
+    this.els.battleActions.innerHTML = `
+      <div class="battle-toolbar">
+        <button class="battle-next-btn" data-act="openStageMap">地圖</button>
+        <button class="battle-next-btn" data-act="restartStage">重來</button>
+        <button class="battle-next-btn"${canAdvance ? ` data-act="stage" data-arg="${STAGES[nextIndex].id}"` : " disabled"}>下關</button>
+        <button class="battle-next-btn" data-act="toggleBattle">${this.battleHidden ? "顯示戰鬥" : "隱藏戰鬥"}</button>
+      </div>`;
     this.els.battleOptions.innerHTML = `
       <label class="battle-check">
         <input type="checkbox" data-act="toggleAutoNext" ${state.progress.autoAdvanceNext ? "checked" : ""}>
@@ -1532,7 +1535,7 @@ export class UI {
       const matStr = Object.entries(mat).map(([m, q]) =>
         `${MATERIALS[m]?.icon ?? m}<span class="${(state.inventory[m] ?? 0) < q ? "cost-lack" : ""}">${q}</span>`).join(" ");
       const essStr = ec > 0
-        ? ` ＋ 精髓 <span class="${have < ec ? "cost-lack" : ""}">${fmtNum(have)}/${ec}</span>`
+        ? ` ＋ 精髓 <span class="${have < ec ? "cost-lack" : ""}">${ec}/${fmtNum(have)}</span>`
         : "";
       return `<div class="craft-row"${disabled ? ` title="無法使用該工藝：${status.reason}"` : ""}>
         <span class="craft-row__name">${def.label}</span>

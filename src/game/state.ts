@@ -8,8 +8,7 @@ export function createInitialState(): GameState {
   return {
     version: SAVE_VERSION,
     inventory: {
-      ingot: 100,
-      leather: 100,
+      ingot: 200,
       crystal: 100,
     },
     // 生產：開局 1 個子分頁、無放置；送 1 台庫存組裝機由玩家放置（首格閃爍引導）。

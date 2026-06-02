@@ -182,7 +182,6 @@ export type Item = Equipment | CoreItem;
 /** 生產配方 id：提煉 3 種、裝備 3 種、核心、以及機台自身（組裝機／研究室）。 */
 export type RecipeId =
   | "smelt"
-  | "tan"
   | "crystallize"
   | "weapon"
   | "armor"
