@@ -31,6 +31,7 @@ import { affixBonusMultiplier, countVariableAffixes } from "../game/itemAffixes.
 import { DISMANTLE_CYCLE, stageCost, dismantleableCount, baseStageCost, baseBonus, baseItemsAvailable, essenceAvailable } from "../game/research.ts";
 import { estimateFilterMatches } from "../game/filter.ts";
 import { effectiveRuneSelection, pendingVacatedSlots, resolvePendingSlots } from "../game/loadout.ts";
+import { craftableAffixDefs, craftEssenceCost, craftMaterialCost, rerollStatus, augmentStatus, CRAFT_MIN_TIER, CRAFT_MAX_TIER } from "../game/craft.ts";
 
 /** 核心插槽目標：生產行（tab,row）或研究室。 */
 export type CoreTarget =
@@ -54,6 +55,8 @@ export interface UICallbacks {
   onRenameTab(tab: number, name: string): void;
   onRemoveTab(tab: number): void;
   onResearchAffix(stat: string): void;
+  onCraftReroll(uid: number, stat: string, tier: number): void;
+  onCraftAugment(uid: number, stat: string, tier: number): void;
   onEquip(uid: number): void;
   onUnequip(slot: EquipSlotId): void;
   onCancelPendingEquip(uid: number): void;
@@ -108,6 +111,10 @@ export class UI {
   private stageModalEl!: HTMLElement;
   private settingsModalEl!: HTMLElement;
   private tabSettingsModalEl!: HTMLElement;
+  private craftPickModalEl!: HTMLElement;
+  private craftPickOpen = false;
+  private craftPickSort: BagSortCfg = { key: "rarity", dir: "desc" };
+  private craftPickFilter: Slot | "all" = "all";
   private toastEl!: HTMLElement;
   private toastTimer: number | null = null;
   private stageModalOpen = false;
@@ -119,6 +126,9 @@ export class UI {
   private bagFilterModalOpen = false;
   private bagFilterModalType: ItemSlot | null = null;
   private recipeTarget: { tab: number; row: number | null } | null = null;
+  private craftUid: number | null = null;
+  private craftTab: "reroll" | "augment" = "reroll";
+  private craftTier: Record<string, number> = {};
   private activeRecipeTab: "refine" | "equipment" | "machine" =
     this.view.recipeTab === "equipment" || this.view.recipeTab === "machine" || this.view.recipeTab === "refine" ? this.view.recipeTab : "refine";
   private flashRecipeWeapon = false;
@@ -142,6 +152,7 @@ export class UI {
     bagTabs: HTMLElement;
     bagFilter: HTMLElement;
     inventory: HTMLElement;
+    craft: HTMLElement;
     research: HTMLElement;
     reincarnation: HTMLElement;
   };
@@ -195,6 +206,7 @@ export class UI {
         <div class="tabrail">
           <button class="tab-btn" data-act="tab" data-arg="prod">🏭 生產</button>
           <button class="tab-btn" data-act="tab" data-arg="bag">🎒 背包</button>
+          <button class="tab-btn" data-act="tab" data-arg="craft">🔨 工藝</button>
           <button class="tab-btn" data-act="tab" data-arg="research">🔬 研究</button>
           <button class="tab-btn" data-act="tab" data-arg="reincarnation" data-reinc-tab hidden>♾️ 輪迴</button>
           <button class="btn-settings" data-act="openSettings">設定</button>
@@ -226,9 +238,14 @@ export class UI {
             <h2 data-bag-warehouse-title>倉庫</h2>
             <div class="warehouse" data-zone="warehouse"></div>
           </section>
+          <section class="panel-section" data-panel="craft">
+            <h2>工藝</h2>
+            <p class="hint">選一件背包裝備，用精髓／結晶與基本素材改造它。重鑄＝整件重骰但保證指定詞；附加＝把詞打到空位（全裝僅一條附加詞，以不同色顯示）。</p>
+            <div class="craft" data-zone="craft"></div>
+          </section>
           <section class="panel-section" data-panel="research">
             <h2>研究</h2>
-            <p class="hint">研究室運轉時會自動銷毀倉庫裝備：每件推進對應類型的基底研究與固定詞綴，T3 以上的變動詞綴另外轉成詞綴研究值。詞綴研究每階永久 +10%，基底研究每階永久 +20%。研究室需用「研究室」配方生產。</p>
+            <p class="hint">拆解機自動拆倉庫裝備產出精髓／結晶；在此消耗它們瞬間升研究階。詞綴研究每階永久 +10%，基底研究每階永久 +20%。</p>
             <div class="research" data-zone="research"></div>
           </section>
           <section class="panel-section" data-panel="reincarnation">
@@ -256,6 +273,8 @@ export class UI {
     this.stageModalEl = this.makeModal(() => { this.stageModalOpen = false; this.renderStageModal(this.currentState); });
     this.settingsModalEl = this.makeModal(() => { this.settingsModalOpen = false; this.renderSettingsModal(); });
     this.tabSettingsModalEl = this.makeModal(() => { this.tabSettingsOpen = false; this.renderTabSettingsModal(this.currentState); });
+    this.craftPickModalEl = this.makeModal(() => { this.craftPickOpen = false; this.renderCraftPickModal(this.currentState); });
+    this.craftPickModalEl.addEventListener("change", (e) => this.onFilterRuleChange(e));
     this.toastEl = this.root.querySelector<HTMLElement>("[data-ui-toast]")!;
 
     const z = (n: string) => this.root.querySelector(`[data-zone="${n}"]`) as HTMLElement;
@@ -274,6 +293,7 @@ export class UI {
       bagTabs: z("bagTabs"),
       bagFilter: z("bagFilter"),
       inventory: z("inventory"),
+      craft: z("craft"),
       research: z("research"),
       reincarnation: z("reincarnation"),
     };
@@ -641,6 +661,27 @@ export class UI {
       // ---- 研究室 ----
       case "researchBase": this.cb.onResearchBase(arg as BaseResearchSlot); break;
       case "researchAffix": this.cb.onResearchAffix(arg as string); break;
+      case "openCraftPick": this.craftPickOpen = true; this.renderCraftPickModal(this.currentState); break;
+      case "closeCraftPick": this.craftPickOpen = false; this.renderCraftPickModal(this.currentState); break;
+      case "craftPickChoose":
+        this.craftUid = Number(arg);
+        this.craftPickOpen = false;
+        this.renderCraftPickModal(this.currentState);
+        if (this.currentState) this.renderCraft(this.currentState);
+        break;
+      case "craftPickSortDir":
+        this.craftPickSort = { key: this.craftPickSort.key, dir: this.craftPickSort.dir === "desc" ? "asc" : "desc" };
+        this.renderCraftPickModal(this.currentState);
+        break;
+      case "craftPickFilter":
+        this.craftPickFilter = arg === "all" ? "all" : (arg as Slot);
+        this.renderCraftPickModal(this.currentState);
+        break;
+      case "craftTab": this.craftTab = arg === "augment" ? "augment" : "reroll"; if (this.currentState) this.renderCraft(this.currentState); break;
+      case "craftTierUp": this.craftTier[arg] = this.clampCraftTier((this.craftTier[arg] ?? CRAFT_MIN_TIER) + 1); if (this.currentState) this.renderCraft(this.currentState); break;
+      case "craftTierDown": this.craftTier[arg] = this.clampCraftTier((this.craftTier[arg] ?? CRAFT_MIN_TIER) - 1); if (this.currentState) this.renderCraft(this.currentState); break;
+      case "craftReroll": if (this.craftUid != null) this.cb.onCraftReroll(this.craftUid, arg, this.clampCraftTier(this.craftTier[arg] ?? CRAFT_MIN_TIER)); break;
+      case "craftAugment": if (this.craftUid != null) this.cb.onCraftAugment(this.craftUid, arg, this.clampCraftTier(this.craftTier[arg] ?? CRAFT_MIN_TIER)); break;
       // ---- 輪迴 ----
       case "victoryContinue": this.cb.onVictoryContinue(); break;
       case "reincarnate": this.cb.onReincarnate(arg as ReincarnationBuff); break;
@@ -670,6 +711,12 @@ export class UI {
       if (this.currentState) { this.renderEquipInv(this.currentState); this.renderWarehouse(this.currentState); }
       return;
     }
+    const craftSortSel = (e.target as HTMLElement).closest?.("[data-craft-sort]") as HTMLSelectElement | null;
+    if (craftSortSel) {
+      this.craftPickSort = { key: craftSortSel.value as ItemSortKey, dir: this.craftPickSort.dir };
+      this.renderCraftPickModal(this.currentState);
+      return;
+    }
     const field = (e.target as HTMLElement).closest?.("[data-rule-field]") as HTMLElement | null;
     if (!field) return;
     const ruleEl = field.closest(".fs-rule") as HTMLElement | null;
@@ -696,6 +743,7 @@ export class UI {
     this.renderBagFilter(state);
     this.renderEquipInv(state);
     this.renderWarehouse(state);
+    this.renderCraft(state);
     this.renderResearch();
     this.renderReincarnation(state);
     this.renderRunes(state);
@@ -705,6 +753,7 @@ export class UI {
     this.renderRecipeModal(state);
     this.renderSettingsModal();
     this.renderTabSettingsModal(state);
+    this.renderCraftPickModal(state);
     this.renderCoreModal(state);
     this.renderVictoryModal(state);
     const reincTab = this.root.querySelector<HTMLElement>("[data-reinc-tab]");
@@ -803,7 +852,7 @@ export class UI {
         if (this.lastStages[t.stat] === undefined) this.lastStages[t.stat] = stages;
         if (stages !== this.lastStages[t.stat]) { this.lastStages[t.stat] = stages; this.flashUntil[t.stat] = now + 700; }
         const can = have >= cost;
-        t.bonus.textContent = `+${stages * 10}%`;
+        t.bonus.textContent = `LV ${stages} (+${stages * 10}%)`;
         t.prog.textContent = `${fmtNum(have)}/${cost} 精髓`;
         t.fill.style.width = `${Math.round(Math.min(1, have / cost) * 100)}%`;
         t.btn.disabled = !can;
@@ -817,7 +866,7 @@ export class UI {
         if (this.lastBaseStages[b.slot] === undefined) this.lastBaseStages[b.slot] = stages;
         if (stages !== this.lastBaseStages[b.slot]) { this.lastBaseStages[b.slot] = stages; this.baseFlashUntil[b.slot] = now + 700; }
         const can = have >= need;
-        b.bonus.textContent = `+${Math.round(baseBonus(state, b.slot) * 100)}%`;
+        b.bonus.textContent = `LV ${stages} (+${Math.round(baseBonus(state, b.slot) * 100)}%)`;
         b.prog.textContent = `${fmtNum(have)}/${need} 結晶`;
         b.fill.style.width = `${Math.round(Math.min(1, have / need) * 100)}%`;
         b.btn.disabled = !can;
@@ -1400,6 +1449,104 @@ export class UI {
     return item.kind === "equipment" && item.slot === this.activeBagFilter;
   }
 
+  private clampCraftTier(t: number): number {
+    return Math.max(CRAFT_MIN_TIER, Math.min(CRAFT_MAX_TIER, Math.round(t)));
+  }
+
+  private renderCraft(state: GameState): void {
+    const equips = state.equipmentInv.filter((i): i is Equipment => i.kind === "equipment");
+    if (this.craftUid != null && !equips.some((e) => e.uid === this.craftUid)) this.craftUid = null;
+    const sel = this.craftUid != null ? equips.find((e) => e.uid === this.craftUid) : undefined;
+
+    const slotCard = sel
+      ? `<div class="inv-item craft-slot-card ${rarityClassName(sel.rarity)}" data-act="openCraftPick" title="點擊更換">
+           <span class="ii-name">${sel.icon} ${sel.name} <span class="ii-cnt">${countVariableAffixes(sel)}詞</span></span>
+           <span class="ii-stats">${describeEquip(sel, state, false)}</span>
+         </div>`
+      : `<div class="inv-item craft-slot-card craft-slot-empty" data-act="openCraftPick">＋ 點擊從背包選擇裝備</div>`;
+    const slot = `<div class="craft-slot-grid">${slotCard}</div>`;
+
+    const subtabs = `<div class="craft-subtabs">
+      <button class="tab-btn${this.craftTab === "reroll" ? " sel" : ""}" data-act="craftTab" data-arg="reroll">重鑄</button>
+      <button class="tab-btn${this.craftTab === "augment" ? " sel" : ""}" data-act="craftTab" data-arg="augment">附加</button>
+    </div>`;
+    const body = sel ? this.renderCraftRows(state, sel) : `<p class="hint">選擇一件裝備以進行工藝。</p>`;
+
+    this.els.craft.innerHTML = `${slot}${subtabs}<div class="craft-body">${body}</div>`;
+  }
+
+  /** 工藝選裝備視窗：列出背包裝備（與背包同卡片、可排序、暫不過濾）。 */
+  private renderCraftPickModal(state: GameState | null): void {
+    if (!state || !this.craftPickOpen) { this.craftPickModalEl.hidden = true; this.craftPickModalEl.innerHTML = ""; return; }
+    const equips = state.equipmentInv.filter((i): i is Equipment =>
+      i.kind === "equipment" && (this.craftPickFilter === "all" || i.slot === this.craftPickFilter));
+    // 排序選單依目前基底篩選改變（同背包）；現有鍵不適用則回該類預設
+    const sortKeys = SORT_OPTIONS[this.craftPickFilter];
+    if (!sortKeys.includes(this.craftPickSort.key)) this.craftPickSort = { key: sortKeys[0], dir: this.craftPickSort.dir };
+    const cfg = this.craftPickSort;
+    const sorted = [...equips].sort((a, b) => {
+      const av = getItemSortValue(state, a, cfg.key);
+      const bv = getItemSortValue(state, b, cfg.key);
+      return cfg.dir === "asc" ? av - bv : bv - av;
+    });
+    const opts = sortKeys.map((k) => `<option value="${k}"${k === cfg.key ? " selected" : ""}>${sortKeyLabel(k)}</option>`).join("");
+    const filterButtons: Array<{ key: Slot | "all"; label: string }> = [
+      { key: "all", label: "全部" }, { key: "weapon", label: "武器" }, { key: "armor", label: "防具" }, { key: "accessory", label: "飾品" },
+    ];
+    const filterRow = `<div class="bag-filter-row">
+        ${filterButtons.map((f) => `<button class="tab-btn bag-filter-btn${this.craftPickFilter === f.key ? " sel" : ""}" data-act="craftPickFilter" data-arg="${f.key}">${f.label}</button>`).join("")}
+      </div>`;
+    const sortRow = `<div class="bag-sort-row">
+        <span class="bag-sort-label">排序</span>
+        <select class="bag-sort-select" data-craft-sort>${opts}</select>
+        <button class="tab-btn bag-sort-dir" data-act="craftPickSortDir">${cfg.dir === "desc" ? "▼ 遞減" : "▲ 遞增"}</button>
+      </div>`;
+    const cards = equips.length
+      ? sorted.slice(0, INV_RENDER_CAP).map((eq) => `<div class="inv-item ${rarityClassName(eq.rarity)}" data-act="craftPickChoose" data-arg="${eq.uid}">
+          <span class="ii-name">${eq.icon} ${eq.name} <span class="ii-cnt">${countVariableAffixes(eq)}詞</span></span>
+          <span class="ii-stats">${describeEquip(eq, state, false)}</span>
+        </div>`).join("")
+      : `<p class="empty-note">背包沒有裝備可工藝。</p>`;
+    this.craftPickModalEl.innerHTML = `
+      <div class="modal-card modal-card--craftpick" role="dialog" aria-modal="true" aria-label="選擇要工藝的裝備">
+        <div class="modal-head"><h3>選擇裝備</h3><button class="modal-close" data-act="closeCraftPick">關閉</button></div>
+        ${filterRow}
+        ${sortRow}
+        <div class="equip-inv">${cards}</div>
+      </div>`;
+    this.craftPickModalEl.hidden = false;
+  }
+
+  private renderCraftRows(state: GameState, item: Equipment): string {
+    const defs = craftableAffixDefs(item.slot);
+    const mat = craftMaterialCost(item.slot);
+    const isReroll = this.craftTab === "reroll";
+    return defs.map((def) => {
+      const stat = def.stat as string;
+      const tier = this.clampCraftTier(this.craftTier[stat] ?? CRAFT_MIN_TIER);
+      const ec = craftEssenceCost(tier);
+      const have = state.essences[stat] ?? 0;
+      const status = isReroll ? rerollStatus(state, item, stat, tier) : augmentStatus(state, item, stat, tier);
+      const disabled = !status.ok;
+      // 費用：不足的數量顯示紅色
+      const matStr = Object.entries(mat).map(([m, q]) =>
+        `${MATERIALS[m]?.icon ?? m}<span class="${(state.inventory[m] ?? 0) < q ? "cost-lack" : ""}">${q}</span>`).join(" ");
+      const essStr = ec > 0
+        ? ` ＋ 精髓 <span class="${have < ec ? "cost-lack" : ""}">${fmtNum(have)}/${ec}</span>`
+        : "";
+      return `<div class="craft-row"${disabled ? ` title="無法使用該工藝：${status.reason}"` : ""}>
+        <span class="craft-row__name">${def.label}</span>
+        <span class="craft-row__cost">${matStr}${essStr}</span>
+        <div class="craft-tier">
+          <button class="mc-mini-btn step-mul" data-act="craftTierDown" data-arg="${stat}">◀</button>
+          <b>T${tier}</b>
+          <button class="mc-mini-btn step-mul" data-act="craftTierUp" data-arg="${stat}">▶</button>
+        </div>
+        <button class="mc-mini-btn craft-row__do" data-act="${isReroll ? "craftReroll" : "craftAugment"}" data-arg="${stat}"${disabled ? " disabled" : ""}>${isReroll ? "重鑄" : "附加"}</button>
+      </div>`;
+    }).join("");
+  }
+
   private renderResearch(): void {
     const state = this.currentState;
     const coreUnlocked = state?.progress.coreUnlocked ?? false;
@@ -1418,19 +1565,23 @@ export class UI {
       <h3 class="research-sub">基底研究（消耗結晶，永久 +20%／階 基底與固定詞綴）</h3>
       <div class="branks">
         ${(["weapon", "armor", "accessory", "core"] as BaseResearchSlot[]).map((slot) => `<div class="brank rrow" data-bslot="${slot}">
-          <span class="rt-name">${baseResearchLabel(slot)} <b class="rt-bonus" data-bbonus></b></span>
+          <div class="rt-left">
+            <div class="rt-head"><span class="rt-name">${baseResearchLabel(slot)}</span><b class="rt-bonus" data-bbonus></b></div>
+            <span class="cell-bar rt-bar"><i data-bfill></i></span>
+          </div>
           <span class="rt-prog" data-bprog></span>
           <button class="mc-mini-btn rt-btn" data-act="researchBase" data-arg="${slot}" data-bbtn>研究</button>
-          <span class="cell-bar rt-bar"><i data-bfill></i></span>
         </div>`).join("")}
       </div>
       <h3 class="research-sub">詞綴研究（消耗精髓，永久 +10%／階）</h3>
       <div class="rtracks">
         ${tracks.map((t) => `<div class="rtrack rrow" data-rstat="${t.stat}">
-          <span class="rt-name">${t.label} <b class="rt-bonus" data-rt-bonus></b></span>
+          <div class="rt-left">
+            <div class="rt-head"><span class="rt-name">${t.label}</span><b class="rt-bonus" data-rt-bonus></b></div>
+            <span class="cell-bar rt-bar"><i data-rt-fill></i></span>
+          </div>
           <span class="rt-prog" data-rt-prog></span>
           <button class="mc-mini-btn rt-btn" data-act="researchAffix" data-arg="${t.stat}" data-rbtn>研究</button>
-          <span class="cell-bar rt-bar"><i data-rt-fill></i></span>
         </div>`).join("")}
       </div>`;
     this.labCountEl = this.els.research.querySelector("[data-dcount]");
@@ -1622,7 +1773,8 @@ function describeEquip(eq: Item, state: GameState, showBonus = true): string {
     const tierTag = a.fixed
       ? `<span class="aff-tier aff-tier--fixed">固定</span>`
       : `<span class="aff-tier">T${a.tier}</span>`;
-    return `<div class="aff-line"><span class="aff-line__main">+${val} ${a.label}${buff}</span>${tierTag}</div>`;
+    const mainCls = a.augmented ? "aff-line__main aff-augmented" : "aff-line__main";
+    return `<div class="aff-line"><span class="${mainCls}">+${val} ${a.label}${buff}</span>${tierTag}</div>`;
   };
   const fixedAff = eq.affixes.filter((a) => a.fixed).map(affLine);
   const varAff = [...eq.affixes].filter((a) => !a.fixed).sort((a, b) => a.stat.localeCompare(b.stat)).map(affLine);

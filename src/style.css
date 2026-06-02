@@ -1848,12 +1848,28 @@ body {
   display: grid;
   grid-template-columns: 1fr auto auto;
   align-items: center;
-  gap: 2px 8px;
+  gap: 0 12px;
   background: var(--panel2);
   border: 1px solid var(--line);
   border-radius: 6px;
   padding: 6px 8px;
   font-size: 12px;
+}
+/* 左塊：名稱（左上）＋等級（右上）一行，進度條置底滿寬 */
+.rt-left {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.rt-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.rt-left .rt-bar {
+  width: 100%;
 }
 /* 研究鈕：可研究時亮起，不足時暗化不可按 */
 .rt-btn {
@@ -1870,18 +1886,107 @@ body {
   opacity: 0.4;
   cursor: default;
 }
+
+/* ---- 工藝分頁 ---- */
+/* 選取槽比照背包卡（同寬高、稀有度底色），水平置中 */
+.craft-slot-grid {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 8px;
+}
+.craft-slot-card {
+  width: calc((100% - 18px) / 4); /* ＝背包 4 欄卡片寬（扣 3 個 6px 間距） */
+  cursor: pointer;
+}
+.craft-slot-card:hover {
+  border-color: var(--accent);
+}
+.inv-item.craft-slot-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  color: var(--muted);
+  border-style: dashed;
+  font-size: 13px;
+}
+.craft-subtabs {
+  display: flex;
+  gap: 6px;
+  margin: 10px 0 8px;
+}
+.craft-subtabs .tab-btn {
+  flex: 1;
+}
+.craft-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.craft-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  align-items: center;
+  gap: 8px;
+  background: var(--panel2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 12px;
+}
+.craft-row__name {
+  font-weight: 600;
+  white-space: nowrap;
+}
+.craft-row__cost {
+  color: var(--muted);
+  min-width: 0;
+}
+.cost-lack {
+  color: var(--bad);
+  font-weight: 700;
+}
+.craft-tier {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.craft-tier b {
+  min-width: 26px;
+  text-align: center;
+  color: var(--gold);
+}
+.craft-tier .step-mul {
+  min-width: 0;
+  padding: 2px 8px;
+}
+.craft-row__do {
+  min-width: 0;
+  padding: 3px 12px;
+}
+.craft-row__do:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+/* 附加詞綴：以琥珀色標示，與一般詞綴區別 */
+.aff-augmented {
+  color: #f0a85a;
+}
 .rt-name {
   font-weight: 600;
+  min-width: 0;
 }
 .rt-bonus {
   color: var(--gold);
+  white-space: nowrap;
 }
+/* 中塊：材料數——固定預留「20 數字 + 2 中文字」寬、靠右，避免數字長短讓各列左塊寬度不一而歪掉。
+   左塊↔費用、費用↔研究鈕的留白由統一欄距控制（見 .rtrack/.brank gap）。 */
 .rt-prog {
   color: var(--muted);
   text-align: right;
-}
-.rt-bar {
-  grid-column: 1 / -1;
+  white-space: nowrap;
+  width: calc(20ch + 2em);
 }
 .rt-bar i {
   background: var(--accent);
@@ -1901,7 +2006,7 @@ body {
   display: grid;
   grid-template-columns: 1fr auto auto;
   align-items: center;
-  gap: 2px 8px;
+  gap: 0 12px;
   background: var(--panel2);
   border: 1px solid var(--line);
   border-radius: 6px;
@@ -2178,6 +2283,20 @@ body {
 .modal-card--core {
   width: min(720px, calc(100vw - 32px));
   max-width: none;
+}
+/* 工藝選裝備視窗：固定占滿螢幕高，內部清單捲動，不隨數量縮放 */
+.modal-card--craftpick {
+  width: min(720px, calc(100vw - 32px));
+  max-width: none;
+  height: calc(100vh - 32px);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.modal-card--craftpick .equip-inv {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 /* ---- 過濾規則編輯器（機器行 modal / 背包整理共用） ---- */

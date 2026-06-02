@@ -30,7 +30,6 @@ export function researchBase(state: GameState, slot: BaseResearchSlot): boolean 
 }
 
 const STAGE_BASE_COST = 50;
-const RESEARCH_PER_TIER = 10;
 const STRENGTH_PER_STAGE = 0.1;
 export const DISMANTLE_CYCLE = 2;
 
@@ -39,9 +38,9 @@ export function stageCost(state: GameState, stages: number): number {
   return Math.max(1, Math.round(STAGE_BASE_COST * researchStageGrowthFactor(state) ** stages));
 }
 
-/** 一條 T3 以上詞綴拆出的精髓量（＝舊研究值，使所需裝備量與以前一致）。 */
+/** 一條 T3 以上詞綴拆出的精髓量：T3＝10，每高一階 ×2（T1／T2 不產）。 */
 export function affixResearchValue(aff: Affix): number {
-  return aff.tier >= 3 ? (aff.tier - 2) * RESEARCH_PER_TIER : 0;
+  return aff.tier >= 3 ? 10 * 2 ** (aff.tier - 3) : 0;
 }
 
 export function strengthBonus(state: GameState, stat: string): number {

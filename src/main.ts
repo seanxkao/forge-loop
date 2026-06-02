@@ -1,6 +1,6 @@
 import "./style.css";
 import type { CoreSlots } from "./game/machineCores.ts";
-import type { FilterEntry, GameState, ItemSlot } from "./game/types.ts";
+import type { Equipment, FilterEntry, GameState, ItemSlot } from "./game/types.ts";
 import { organizeBag } from "./game/filter.ts";
 import { MATERIALS } from "./game/content.ts";
 import { load, save, wipe, exportSaveText, importSaveText } from "./game/save.ts";
@@ -26,6 +26,7 @@ import {
   adjustRowStep,
 } from "./game/production.ts";
 import { equip, unequip, toggleItemLock, toWarehouse, fromWarehouse } from "./game/equipment.ts";
+import { doReroll, doAugment } from "./game/craft.ts";
 import { inBattle, queueLoadoutAction, effectiveRuneSelection, cancelPendingEquip, cancelPendingVacate } from "./game/loadout.ts";
 import { socketCore, unsocketCore } from "./game/machineCores.ts";
 import { tickDismantler, researchBase, researchAffix } from "./game/research.ts";
@@ -151,6 +152,14 @@ const ui = new UI(root, canvas, {
   onRenameTab: (tab, name) => { renameProductionTab(state, tab, name); ui.refresh(state); },
   onRemoveTab: (tab) => { removeProductionTab(state, tab); ui.refresh(state); },
   onResearchAffix: (stat) => { researchAffix(state, stat); ui.refresh(state); },
+  onCraftReroll: (uid, stat, tier) => {
+    const item = state.equipmentInv.find((i) => i.uid === uid && i.kind === "equipment");
+    if (item) { doReroll(state, item as Equipment, stat, tier); ui.refresh(state); }
+  },
+  onCraftAugment: (uid, stat, tier) => {
+    const item = state.equipmentInv.find((i) => i.uid === uid && i.kind === "equipment");
+    if (item) { doAugment(state, item as Equipment, stat, tier); ui.refresh(state); }
+  },
   onEquip: (uid) => {
     if (inBattle(state)) {
       queueLoadoutAction(state, { kind: "equip", uid });

@@ -152,6 +152,8 @@ export interface Affix {
   tier: number;
   tags?: AffixTag[];
   fixed?: boolean;
+  /** 以「附加」工藝打上去的詞綴：全裝僅一條，再附加會先移除舊的；UI 以不同顏色顯示。 */
+  augmented?: boolean;
 }
 
 interface ItemBase {

@@ -9,7 +9,7 @@ import type {
   Item,
   RecipeDef,
 } from "./types.ts";
-import { CORE_RECIPE } from "./content.ts";
+import { CORE_RECIPE, RECIPES } from "./content.ts";
 import { passesFilterEntries } from "./filter.ts";
 import {
   type MachineCoreEffects,
@@ -17,6 +17,7 @@ import {
   weightedAffixPool,
 } from "./machineCores.ts";
 import {
+  deriveLegacyItemRarity,
   rollCoreRarity,
   rollCoreVariableAffixCount,
   rollEquipmentAffixCount,
@@ -85,6 +86,50 @@ function rollAffixes(
     out.push(rollOneAffix(available.splice(idx, 1)[0], rng, luckyTierChance, upgradeTierChance));
   }
   return out;
+}
+
+/** roll 指定 stat 的指定階級（值在該階範圍內 roll）；供工藝重鑄／附加使用。 */
+export function rollAffixAtTier(def: AffixDef, tier: number): Affix {
+  const t = def.tiers.find((x) => x.tier === tier) ?? def.tiers[0];
+  if (def.stat === "atk") {
+    return { stat: def.stat, value: t.min, valueMax: t.max, label: def.label, pct: def.pct, tier: t.tier, tags: def.tags, fixed: def.fixed };
+  }
+  return { stat: def.stat, value: rollTierValue(t.min, t.max, !!def.pct, Math.random), label: def.label, pct: def.pct, tier: t.tier, tags: def.tags, fixed: def.fixed };
+}
+
+/** 工藝・重鑄：完全重骰該裝備（稀有度／詞綴數／詞綴全部重來），但必定含 forcedStat@forcedTier。就地修改。 */
+export function rerollEquipment(item: Equipment, forcedStat: string, forcedTier: number): void {
+  const recipe = RECIPES[item.recipeId] ?? RECIPES[item.slot];
+  if (!recipe) return;
+  const rarity = rollEquipmentRarity(0);
+  const count = rollEquipmentAffixCount(rarity);
+  const affixes = rollAffixes(recipe.affixPool, count, 0);
+  const def = recipe.affixPool.find((d) => d.stat === forcedStat);
+  if (def) {
+    const forced = rollAffixAtTier(def, forcedTier);
+    const idx = affixes.findIndex((a) => a.stat === forcedStat);
+    if (idx >= 0) affixes[idx] = forced;
+    else if (affixes.length > 0) affixes[affixes.length - 1] = forced;
+    else affixes.push(forced);
+  }
+  item.rarity = rarity;
+  item.affixes = affixes;
+}
+
+/** 工藝・附加：把 stat@tier 加到空詞位，標記 augmented；先移除既有 augmented 詞（全裝僅一條）。就地修改。 */
+export function augmentEquipment(item: Equipment, stat: string, tier: number): void {
+  const recipe = RECIPES[item.recipeId] ?? RECIPES[item.slot];
+  const def = recipe?.affixPool.find((d) => d.stat === stat);
+  if (!def) return;
+  item.affixes = item.affixes.filter((a) => !a.augmented);
+  const aff = rollAffixAtTier(def, tier);
+  aff.augmented = true;
+  item.affixes.push(aff);
+  // 依詞綴數更新稀有度（無詞普通 → 魔法等）；傳奇不降級
+  if (item.rarity !== "legendary") {
+    const count = item.affixes.filter((a) => !a.fixed).length;
+    item.rarity = deriveLegacyItemRarity("equipment", count);
+  }
 }
 
 /** 依該行過濾器分流：符合進主背包、否則進倉庫。 */
