@@ -16,22 +16,23 @@ function round(value: number): number {
   return Math.round(value * 10000) / 10000;
 }
 
+// 固定詞綴：無 tier 概念，僅在單一範圍內 roll 數值（不分階、不加權）。
 export const CORE_FIXED_AFFIX: AffixDef = withDerivedAffixMeta({
   stat: "productivity",
   fixed: true,
-  tiers: tiers(0.02, 0.04),
+  tiers: [{ tier: 1, weight: 1, min: 0.02, max: 0.04 }],
 });
 
 export const LEGENDARY_CORE_LUCKY_AFFIX: AffixDef = withDerivedAffixMeta({
   stat: "luckyTierChance",
   fixed: true,
-  tiers: [{ tier: 1, weight: 1, min: 0.1, max: 0.1 }],
+  tiers: [{ tier: 1, weight: 1, min: 0.2, max: 0.2 }],
 });
 
 export const CORE_AFFIX_POOL: AffixDef[] = [
   withDerivedAffixMeta({ stat: "machineSpeedPct", tiers: tiers(0.04, 0.32) }),
   withDerivedAffixMeta({ stat: "materialRefundPct", tiers: tiers(0.025, 0.2) }),
-  withDerivedAffixMeta({ stat: "upgradeTierChance", tiers: tiers(0.125, 1) }),
+  withDerivedAffixMeta({ stat: "upgradeTierChance", tiers: tiers(0.0625, 0.5) }),
   withDerivedAffixMeta({ stat: "rarityBonus", tiers: tiers(0.03, 0.24) }),
   withDerivedAffixMeta({ stat: "weightPhysical", tiers: tiers(0.125, 1) }),
   withDerivedAffixMeta({ stat: "weightCrit", tiers: tiers(0.125, 1) }),
@@ -91,7 +92,7 @@ export function createLegendaryCore(state: GameState, suffix: string): CoreItem 
         pct: LEGENDARY_CORE_LUCKY_AFFIX.pct,
         tags: LEGENDARY_CORE_LUCKY_AFFIX.tags,
         tier: 1,
-        value: 0.1,
+        value: LEGENDARY_CORE_LUCKY_AFFIX.tiers[0].max,
         fixed: true,
       },
     ],

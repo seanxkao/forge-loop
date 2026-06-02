@@ -1,6 +1,6 @@
 import type { CoreItem, FilterCmp, FilterEntry, GameState, Item, ItemSlot } from "./types.ts";
 import { countVariableAffixes } from "./itemAffixes.ts";
-import { simulateCraftedItem } from "./craftingEstimate.ts";
+import { prepareSimulation, simulateFromContext } from "./craftingEstimate.ts";
 
 const RARITY_RANK = {
   normal: 0,
@@ -44,19 +44,20 @@ export function organizeBag(state: GameState): void {
   }
 }
 
-/** 估算「平均每製作幾件，能得到 1 件符合」。以該行核心效果重骰取樣。 */
-export function estimateFilterAverageCrafts(
+/** 模擬生產 samples 件，回傳其中被過濾器保留的件數。以該行核心效果重骰取樣。
+ *  entries 為空（無規則）或 samples<=0 時回傳 null（呼叫端另行處理）。 */
+export function estimateFilterMatches(
   state: GameState,
   slot: ItemSlot,
   cores: ReadonlyArray<CoreItem | null>,
   entries: FilterEntry[],
-  samples = 20000,
-): number | null {
+  samples = 100000,
+): { samples: number; matches: number } | null {
   if (samples <= 0 || entries.length === 0) return null;
+  const ctx = prepareSimulation(state, slot, cores);
   let matches = 0;
   for (let i = 0; i < samples; i += 1) {
-    if (passesFilterEntries(entries, simulateCraftedItem(state, slot, cores))) matches += 1;
+    if (passesFilterEntries(entries, simulateFromContext(ctx))) matches += 1;
   }
-  if (matches <= 0) return null;
-  return samples / matches;
+  return { samples, matches };
 }

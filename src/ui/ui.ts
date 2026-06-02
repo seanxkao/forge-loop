@@ -21,7 +21,7 @@ import { MATERIALS, STAGES, RECIPES, CORE_RECIPE, PROD_RECIPES } from "../game/c
 import type { ProdRecipeDef } from "../game/content.ts";
 import { deriveStats, attackInterval } from "../game/hero.ts";
 import { RUNE_DEFS, runeAttackSpeedMore } from "../game/runes.ts";
-import { getEquipmentComparisonRows, getEquipmentSummaryRows, findEquippedInEquipSlot } from "../game/equipmentView.ts";
+import { getEquipmentComparisonRows, getWeaponPhysicalDps, findEquippedInEquipSlot } from "../game/equipmentView.ts";
 import { affixLabel, isPctAffix } from "../game/affixMeta.ts";
 import { materialDropMultiplier, powerMultiplier, researchStageGrowthFactor } from "../game/reincarnation.ts";
 import { rarityClassName } from "../game/rarity.ts";
@@ -29,7 +29,7 @@ import { stageIndexById, unlockedStages, isRecipeUnlocked } from "../game/unlock
 import { clampTooltipPosition } from "./tooltipPosition.ts";
 import { affixBonusMultiplier, countVariableAffixes } from "../game/itemAffixes.ts";
 import { DISMANTLE_CYCLE, stageCost, dismantleableCount, baseStageCost, baseBonus, baseItemsAvailable } from "../game/research.ts";
-import { estimateFilterAverageCrafts } from "../game/filter.ts";
+import { estimateFilterMatches } from "../game/filter.ts";
 
 /** 核心插槽目標：生產行（tab,row）或研究室。 */
 export type CoreTarget =
@@ -81,11 +81,14 @@ const ITEM_SLOT_NAME: Record<ItemSlot, string> = { ...SLOT_NAME, core: "核心" 
 const INV_RENDER_CAP = 100;
 
 export class UI {
-  private activeTab: string = "prod"; // 右側抽屜永遠顯示一個分頁，預設生產
-  private activeBagTab: "main" | "warehouse" = "main";
-  private activeBagFilter: ItemSlot | "all" = "all";
-  private activeBattleInfoTab: "stats" | "equipped" | "runes" = "equipped";
-  private activeProdTab = 0;
+  // 檢視狀態（分頁／子分頁）開發刷新後保留：建構時讀回，變更時 persistView() 寫入。
+  private view = readView();
+  private activeTab: string = typeof this.view.activeTab === "string" ? this.view.activeTab : "prod"; // 右側抽屜永遠顯示一個分頁，預設生產
+  private activeBagTab: "main" | "warehouse" = this.view.bagTab === "warehouse" ? "warehouse" : "main";
+  private activeBagFilter: ItemSlot | "all" = isBagFilterKey(this.view.bagFilter) ? this.view.bagFilter : "all";
+  private activeBattleInfoTab: "stats" | "equipped" | "runes" =
+    this.view.battleInfoTab === "stats" || this.view.battleInfoTab === "runes" ? this.view.battleInfoTab : "equipped";
+  private activeProdTab = typeof this.view.prodTab === "number" && this.view.prodTab >= 0 ? this.view.prodTab : 0;
   private currentState: GameState | null = null;
   private drawerEl!: HTMLElement;
   private tooltipEl!: HTMLElement;
@@ -108,13 +111,16 @@ export class UI {
   private bagFilterModalOpen = false;
   private bagFilterModalType: ItemSlot | null = null;
   private recipeTarget: { tab: number; row: number | null } | null = null;
-  private activeRecipeTab: "refine" | "equipment" | "machine" = "refine";
+  private activeRecipeTab: "refine" | "equipment" | "machine" =
+    this.view.recipeTab === "equipment" || this.view.recipeTab === "machine" || this.view.recipeTab === "refine" ? this.view.recipeTab : "refine";
   private flashRecipeWeapon = false;
   private coreTarget: CoreTarget | null = null;
+  private battleHidden = readBattleHidden();
   private panelEls: Record<string, HTMLElement> = {};
   private tabBtnEls: Record<string, HTMLElement> = {};
 
   private els!: {
+    battleToggle: HTMLElement;
     battleActions: HTMLElement;
     battleOptions: HTMLElement;
     battleInfoTabs: HTMLElement;
@@ -190,6 +196,7 @@ export class UI {
       </div>
       <div class="main">
         <section class="panel main-battle">
+          <button class="battle-toggle" data-act="toggleBattle" data-zone="battleToggle">隱藏戰鬥</button>
           <div class="canvas-wrap">
           <div class="battle-actions" data-zone="battleActions"></div>
           <div class="battle-options" data-zone="battleOptions"></div>
@@ -247,6 +254,7 @@ export class UI {
 
     const z = (n: string) => this.root.querySelector(`[data-zone="${n}"]`) as HTMLElement;
     this.els = {
+      battleToggle: z("battleToggle"),
       battleActions: z("battleActions"),
       battleOptions: z("battleOptions"),
       battleInfoTabs: z("battleInfoTabs"),
@@ -277,6 +285,7 @@ export class UI {
     this.root.addEventListener("change", (e) => this.onFilterRuleChange(e));
     this.filterModalEl.addEventListener("change", (e) => this.onFilterRuleChange(e));
     this.bagFilterModalEl.addEventListener("change", (e) => this.onFilterRuleChange(e));
+    this.applyBattleHidden();
     this.setTab(this.activeTab); // 開局即顯示預設分頁（生產）
   }
 
@@ -322,6 +331,21 @@ export class UI {
     this.drawerEl.classList.add("open");
     for (const k in this.panelEls) this.panelEls[k].classList.toggle("active", k === this.activeTab);
     for (const k in this.tabBtnEls) this.tabBtnEls[k].classList.toggle("sel", k === this.activeTab);
+    this.persistView();
+  }
+
+  /** 把分頁／子分頁檢視狀態寫入 localStorage，刷新後沿用。 */
+  private persistView(): void {
+    try {
+      localStorage.setItem(VIEW_KEY, JSON.stringify({
+        activeTab: this.activeTab,
+        battleInfoTab: this.activeBattleInfoTab,
+        bagTab: this.activeBagTab,
+        bagFilter: this.activeBagFilter,
+        prodTab: this.activeProdTab,
+        recipeTab: this.activeRecipeTab,
+      }));
+    } catch { /* 忽略 */ }
   }
 
   private onContextMenu(e: MouseEvent): void {
@@ -424,12 +448,21 @@ export class UI {
       case "openStageMap": this.stageModalOpen = true; this.renderStageModal(this.currentState); break;
       case "closeStageMap": this.stageModalOpen = false; this.renderStageModal(this.currentState); break;
       case "toggleAutoNext": this.cb.onToggleAutoAdvanceNext(); break;
+      case "toggleBattle": this.toggleBattle(); break;
       // ---- 生產：分頁 ----
       case "prodTab":
         this.activeProdTab = Number(arg);
+        this.persistView();
         if (this.currentState) this.renderProduction(this.currentState);
         break;
-      case "addProdTab": this.cb.onAddTab(); break;
+      case "addProdTab":
+        this.cb.onAddTab();
+        if (this.currentState) {
+          this.activeProdTab = Math.max(0, this.currentState.production.tabs.length - 1);
+          this.persistView();
+          this.renderProduction(this.currentState);
+        }
+        break;
       case "closeTabSettings":
         this.tabSettingsOpen = false;
         this.renderTabSettingsModal(this.currentState);
@@ -455,13 +488,15 @@ export class UI {
           break;
         }
         this.recipeTarget = { tab: Number(t.dataset.tab), row: t.dataset.row !== undefined ? Number(t.dataset.row) : null };
-        this.activeRecipeTab = "equipment";
+        // 首次引導時切到「裝備」分頁讓武器配方閃爍可見；其餘沿用上次記憶的子分頁。
+        if (this.currentState && !this.currentState.progress.recipeGuideSeen) this.activeRecipeTab = "equipment";
         this.flashRecipeWeapon = !!(this.currentState && !this.currentState.progress.recipeGuideSeen);
         this.renderRecipeModal(this.currentState);
         if (this.currentState && !this.currentState.progress.recipeGuideSeen) this.currentState.progress.recipeGuideSeen = true;
         break;
       case "recipeTab":
         this.activeRecipeTab = arg === "equipment" || arg === "machine" ? arg : "refine";
+        this.persistView();
         this.renderRecipeModal(this.currentState);
         break;
       case "closeRecipe": this.recipeTarget = null; this.renderRecipeModal(this.currentState); break;
@@ -478,12 +513,14 @@ export class UI {
       }
       case "addMachine": {
         const r = this.prodRow(Number(t.dataset.tab), Number(t.dataset.row));
-        this.cb.onAddMachine(Number(t.dataset.tab), Number(t.dataset.row), r?.machineStep ?? 1);
+        const mul = Number(t.dataset.mul) || 1;
+        this.cb.onAddMachine(Number(t.dataset.tab), Number(t.dataset.row), (r?.machineStep ?? 1) * mul);
         break;
       }
       case "removeMachine": {
         const r = this.prodRow(Number(t.dataset.tab), Number(t.dataset.row));
-        this.cb.onRemoveMachine(Number(t.dataset.tab), Number(t.dataset.row), r?.machineStep ?? 1);
+        const mul = Number(t.dataset.mul) || 1;
+        this.cb.onRemoveMachine(Number(t.dataset.tab), Number(t.dataset.row), (r?.machineStep ?? 1) * mul);
         break;
       }
       case "rowStepMul": this.cb.onAdjustRowStep(Number(t.dataset.tab), Number(t.dataset.row), t.dataset.kind === "order" ? "order" : "machine", true); break;
@@ -491,7 +528,8 @@ export class UI {
       case "toggleAuto": this.cb.onToggleRowAuto(Number(t.dataset.tab), Number(t.dataset.row)); break;
       case "enqueueOrder": {
         const r = this.prodRow(Number(t.dataset.tab), Number(t.dataset.row));
-        this.cb.onEnqueueOrder(Number(t.dataset.tab), Number(t.dataset.row), r?.orderStep ?? 1);
+        const mul = Number(t.dataset.mul) || 1;
+        this.cb.onEnqueueOrder(Number(t.dataset.tab), Number(t.dataset.row), (r?.orderStep ?? 1) * mul);
         break;
       }
       case "clearOrder": this.cb.onClearOrder(Number(t.dataset.tab), Number(t.dataset.row)); break;
@@ -505,14 +543,17 @@ export class UI {
       case "fromWare": this.cb.onFromWarehouse(Number(arg)); break;
       case "bagTab":
         this.activeBagTab = arg === "warehouse" ? "warehouse" : "main";
+        this.persistView();
         if (this.currentState) { this.renderBagTabs(); this.renderBagFilter(this.currentState); this.renderEquipInv(this.currentState); this.renderWarehouse(this.currentState); }
         break;
       case "bagFilter":
         this.activeBagFilter = arg === "all" ? "all" : (arg as ItemSlot);
+        this.persistView();
         if (this.currentState) { this.renderBagTabs(); this.renderBagFilter(this.currentState); this.renderEquipInv(this.currentState); this.renderWarehouse(this.currentState); }
         break;
       case "battleInfoTab":
         this.activeBattleInfoTab = arg === "equipped" || arg === "runes" ? arg : "stats";
+        this.persistView();
         if (this.currentState) { this.renderBattleInfoTabs(); this.renderHeroPanel(); this.renderEquipped(this.currentState); this.renderRunes(this.currentState); }
         break;
       case "selectRune":
@@ -875,6 +916,23 @@ export class UI {
     }).join("");
   }
 
+  /** 戰鬥畫面是否隱藏（供主迴圈跳過繪製）。 */
+  isBattleHidden(): boolean {
+    return this.battleHidden;
+  }
+
+  toggleBattle(): void {
+    this.battleHidden = !this.battleHidden;
+    try { localStorage.setItem("forge-loop-battle-hidden", this.battleHidden ? "1" : "0"); } catch { /* 忽略 */ }
+    this.applyBattleHidden();
+  }
+
+  private applyBattleHidden(): void {
+    const panel = this.root.querySelector(".main-battle");
+    if (panel) panel.classList.toggle("battle-collapsed", this.battleHidden);
+    this.els.battleToggle.textContent = this.battleHidden ? "顯示戰鬥" : "隱藏戰鬥";
+  }
+
   private renderBattleActions(state: GameState): void {
     const currentIndex = stageIndexById(state.combat.stageId);
     const nextIndex = currentIndex + 1;
@@ -1002,11 +1060,10 @@ export class UI {
     const mStep = row.machineStep ?? 1;
     const oStep = row.orderStep ?? 1;
     const coreSlots = this.renderCoreSlots(state, { kind: "row", tab: tabIndex, row: rowIndex, slotIndex: 0 }, row.cores);
-    const stepStack = (kind: "machine" | "order", step: number) => `
-      <div class="prod-row__stepstack">
-        <button class="mc-mini-btn${step < 1_000_000 ? " ready" : ""}" data-act="rowStepMul" data-kind="${kind}" data-tab="${tabIndex}" data-row="${rowIndex}">×10</button>
-        <button class="mc-mini-btn${step > 1 ? " ready" : ""}" data-act="rowStepDiv" data-kind="${kind}" data-tab="${tabIndex}" data-row="${rowIndex}">÷10</button>
-      </div>`;
+    const stepMul = (kind: "machine" | "order", step: number) =>
+      `<button class="mc-mini-btn step-mul${step < 1_000_000 ? " ready" : ""}" data-act="rowStepMul" data-kind="${kind}" data-tab="${tabIndex}" data-row="${rowIndex}">×10</button>`;
+    const stepDiv = (kind: "machine" | "order", step: number) =>
+      `<button class="mc-mini-btn step-mul${step > 1 ? " ready" : ""}" data-act="rowStepDiv" data-kind="${kind}" data-tab="${tabIndex}" data-row="${rowIndex}">÷10</button>`;
     return `<div class="prod-row" data-prowidx="${rowIndex}">
       <div class="prod-row__topline">
         <div class="prod-row__headline">
@@ -1029,11 +1086,12 @@ export class UI {
           <div class="prod-row__sec prod-row__countctl">
             <span class="prod-row__count" data-pcount>${row.count} 台</span>
             <div class="prod-row__countbtns">
-              <div class="prod-row__addrow">
-                <button class="mc-mini-btn" data-act="removeMachine" data-tab="${tabIndex}" data-row="${rowIndex}">－${mStep}</button>
-                <button class="mc-mini-btn" data-act="addMachine" data-tab="${tabIndex}" data-row="${rowIndex}">＋${mStep}</button>
-              </div>
-              ${stepStack("machine", mStep)}
+              <button class="mc-mini-btn" data-act="removeMachine" data-mul="10" data-tab="${tabIndex}" data-row="${rowIndex}">－${mStep * 10}</button>
+              <button class="mc-mini-btn" data-act="addMachine" data-mul="10" data-tab="${tabIndex}" data-row="${rowIndex}">＋${mStep * 10}</button>
+              ${stepMul("machine", mStep)}
+              <button class="mc-mini-btn" data-act="removeMachine" data-tab="${tabIndex}" data-row="${rowIndex}">－${mStep}</button>
+              <button class="mc-mini-btn" data-act="addMachine" data-tab="${tabIndex}" data-row="${rowIndex}">＋${mStep}</button>
+              ${stepDiv("machine", mStep)}
             </div>
           </div>
         </div>
@@ -1041,9 +1099,13 @@ export class UI {
           <div class="order-box">
             <div class="order-queue">訂單 <b data-queue>${queue}</b></div>
             <div class="order-btns">
-              <button class="mc-mini-btn" data-act="enqueueOrder" data-tab="${tabIndex}" data-row="${rowIndex}">+${oStep}</button>
-              ${stepStack("order", oStep)}
-              <button class="mc-mini-btn" data-act="clearOrder" data-tab="${tabIndex}" data-row="${rowIndex}">清空</button>
+              <div class="order-stepgrid">
+                <button class="mc-mini-btn" data-act="enqueueOrder" data-mul="10" data-tab="${tabIndex}" data-row="${rowIndex}">＋${oStep * 10}</button>
+                ${stepMul("order", oStep)}
+                <button class="mc-mini-btn" data-act="enqueueOrder" data-tab="${tabIndex}" data-row="${rowIndex}">＋${oStep}</button>
+                ${stepDiv("order", oStep)}
+              </div>
+              <button class="mc-mini-btn order-clear" data-act="clearOrder" data-tab="${tabIndex}" data-row="${rowIndex}">清空</button>
             </div>
           </div>
         </div>
@@ -1074,7 +1136,7 @@ export class UI {
     for (const def of Object.values(PROD_RECIPES)) {
       if (!isRecipeUnlocked(state, def.id)) continue;
       if (def.kind === "refine") recipeGroups.refine.push(def);
-      else if (def.kind === "equipment") recipeGroups.equipment.push(def);
+      else if (def.kind === "equipment" || def.kind === "core") recipeGroups.equipment.push(def);
       else if (def.kind === "assembler" || def.kind === "lab") recipeGroups.machine.push(def);
     }
     const tabs: Array<{ key: "equipment" | "refine" | "machine"; label: string }> = [
@@ -1137,12 +1199,10 @@ export class UI {
       return;
     }
     const slot: ItemSlot = def.kind === "core" ? "core" : (def.slot as ItemSlot);
-    const avg = estimateFilterAverageCrafts(state, slot, row.cores, row.filter);
-    const estimateText = avg
-      ? `平均每製作 ${formatAverageCrafts(avg)} 件，可得到 1 件被保留的${ITEM_SLOT_NAME[slot]}。`
-      : row.filter.length === 0
-        ? `尚未設定規則，這條生產線的產物都會進主背包。`
-        : `以目前規則估算，平均超過 ${formatAverageCrafts(20000)} 件仍可能做不到 1 件。`;
+    const est = estimateFilterMatches(state, slot, row.cores, row.filter);
+    const estimateText = est
+      ? `成功率 <b class="fs-estimate__num">${formatSuccessPct(est.matches / est.samples)}</b>（模擬生產 ${est.samples.toLocaleString("en-US")} 次中，可得到 ${est.matches.toLocaleString("en-US")} 件被保留的${ITEM_SLOT_NAME[slot]}）`
+      : `尚未設定規則，這條生產線的產物都會進主背包。`;
     this.filterModalEl.innerHTML = `
       <div class="modal-card" role="dialog" aria-modal="true" aria-label="${ITEM_SLOT_NAME[slot]} 生產過濾器">
         <div class="modal-head"><h3>${ITEM_SLOT_NAME[slot]} 生產過濾器（此生產線）</h3><button class="modal-close" data-act="closeFilter">關閉</button></div>
@@ -1453,10 +1513,11 @@ function describeStats(s: Partial<StatBlock>): string {
   return Object.entries(s).map(([k, v]) => statLabel(k as keyof StatBlock, v as number)).join(" ");
 }
 
-/** 數值一律計入研究加成（生效值）；showBonus=false 時僅省略 (+X%) 標與武器摘要，用於精簡的裝備面板。 */
+/** 數值一律計入研究加成（生效值）；showBonus=false 時僅省略 (+X%) 標，用於精簡的裝備面板。
+ *  版面：基底 → 固定詞綴 ─ 分隔線 ─ 其餘詞綴（依 stat 字母排序）─ 分隔線 ─ 物理 DPS（武器，置底）。 */
 function describeEquip(eq: Item, state: GameState, showBonus = true): string {
-  const summary = showBonus && eq.kind === "equipment" && eq.slot === "weapon"
-    ? getEquipmentSummaryRows(state, eq).slice(0, 1).map((row) => `<span class="eq-summary-line">${row.label} ${formatViewValue(row.value, row.pct, row.valueMax)}</span>`).join("<br>")
+  const dps = eq.kind === "equipment" && eq.slot === "weapon"
+    ? `<div class="aff-line eq-dps">物理 DPS ${fmtNum(getWeaponPhysicalDps(state, eq))}</div>`
     : "";
   const base = eq.kind === "equipment"
     ? (() => {
@@ -1471,10 +1532,10 @@ function describeEquip(eq: Item, state: GameState, showBonus = true): string {
           rows.push(statLabel(k, (v as number) * baseMult));
         }
         const baseStr = rows.join(" ");
-        return baseStr ? baseStr + baseTag : "";
+        return baseStr ? `<div class="aff-line">${baseStr + baseTag}</div>` : "";
       })()
     : "";
-  const aff = [...eq.affixes].sort((a, b) => a.stat.localeCompare(b.stat)).map((a) => {
+  const affLine = (a: Item["affixes"][number]): string => {
     const mult = affixBonusMultiplier(state, eq, a);
     const bonus = mult - 1;
     const buff = showBonus && bonus > 0 ? ` <span class="aff-buff">(+${Math.round(bonus * 100)}%)</span>` : "";
@@ -1483,11 +1544,16 @@ function describeEquip(eq: Item, state: GameState, showBonus = true): string {
     const val = a.pct
       ? (a.stat === "upgradeTierChance" ? formatSpecialPct(eff, 2) : Math.round(eff * 100) + "%")
       : a.stat === "atk" ? `${fmtNum(eff)}~${fmtNum(effMax)}` : fmtNum(eff);
-    const fixed = a.fixed ? `<span class="aff-tier aff-tier--fixed">固定</span>` : "";
-    return `<div class="aff-line"><span class="aff-line__main">+${val} ${a.label}${fixed}${buff}</span><span class="aff-tier">T${a.tier}</span></div>`;
-  });
-  const head = [summary, base].filter(Boolean).map((line) => `<div class="aff-line">${line}</div>`);
-  return [...head, ...aff].join("");
+    const tierTag = a.fixed
+      ? `<span class="aff-tier aff-tier--fixed">固定</span>`
+      : `<span class="aff-tier">T${a.tier}</span>`;
+    return `<div class="aff-line"><span class="aff-line__main">+${val} ${a.label}${buff}</span>${tierTag}</div>`;
+  };
+  const fixedAff = eq.affixes.filter((a) => a.fixed).map(affLine);
+  const varAff = [...eq.affixes].filter((a) => !a.fixed).sort((a, b) => a.stat.localeCompare(b.stat)).map(affLine);
+  const head = [base, ...fixedAff].filter(Boolean);
+  const divider = head.length && varAff.length ? `<div class="aff-divider"></div>` : "";
+  return [...head, divider, ...varAff, dps].filter(Boolean).join("");
 }
 
 function renderTooltipRow(row: ReturnType<typeof getEquipmentComparisonRows>[number]): string {
@@ -1533,10 +1599,47 @@ function fmtNum(n: number): string {
   return `${Math.round(n)}`;
 }
 
-function formatAverageCrafts(value: number): string {
-  if (value >= 100) return `${Math.round(value)}`;
-  if (value >= 10) return value.toFixed(1).replace(/\.0$/, "");
-  return value.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
+function readBattleHidden(): boolean {
+  try {
+    return localStorage.getItem("forge-loop-battle-hidden") === "1";
+  } catch {
+    return false;
+  }
+}
+
+/** 分頁／子分頁檢視狀態（刷新後沿用），與遊戲存檔分開存放。 */
+interface ViewState {
+  activeTab?: string;
+  battleInfoTab?: "stats" | "equipped" | "runes";
+  bagTab?: "main" | "warehouse";
+  bagFilter?: ItemSlot | "all";
+  prodTab?: number;
+  recipeTab?: "refine" | "equipment" | "machine";
+}
+const VIEW_KEY = "forge-loop-view";
+
+function readView(): ViewState {
+  try {
+    const raw = localStorage.getItem(VIEW_KEY);
+    if (!raw) return {};
+    const v = JSON.parse(raw);
+    return v && typeof v === "object" ? (v as ViewState) : {};
+  } catch {
+    return {};
+  }
+}
+
+function isBagFilterKey(v: unknown): v is ItemSlot | "all" {
+  return v === "all" || v === "weapon" || v === "armor" || v === "accessory" || v === "core";
+}
+
+/** 成功率百分比：依量級調整小數位，0 顯示 0%。 */
+function formatSuccessPct(ratio: number): string {
+  const pct = ratio * 100;
+  if (pct <= 0) return "0%";
+  if (pct >= 10) return `${pct.toFixed(1)}%`;
+  if (pct >= 1) return `${pct.toFixed(2)}%`;
+  return `${pct.toFixed(3)}%`;
 }
 
 function summarizeStageEnemies(stage: StageDef): string {

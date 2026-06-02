@@ -13,7 +13,6 @@ import { CORE_RECIPE } from "./content.ts";
 import { passesFilterEntries } from "./filter.ts";
 import {
   type MachineCoreEffects,
-  boostAffixTier,
   rollTierValue,
   weightedAffixPool,
 } from "./machineCores.ts";
@@ -24,7 +23,7 @@ import {
   rollEquipmentRarity,
 } from "./rarity.ts";
 
-function rollTier(def: AffixDef, rng: () => number = Math.random, luckyTierChance = 0): AffixTier {
+function rollTier(def: AffixDef, rng: () => number = Math.random, luckyTierChance = 0, upgradeTierChance = 0): AffixTier {
   const total = def.tiers.reduce((a, t) => a + t.weight, 0);
   const rollOnce = (): AffixTier => {
     let r = rng() * total;
@@ -34,14 +33,20 @@ function rollTier(def: AffixDef, rng: () => number = Math.random, luckyTierChanc
     }
     return def.tiers[def.tiers.length - 1];
   };
-  const first = rollOnce();
+  // 升階判定：每次 tier roll 各自判定一次（幸運的兩次也分別判定）。
+  const maybeUpgrade = (t: AffixTier): AffixTier => {
+    if (upgradeTierChance <= 0 || rng() >= upgradeTierChance) return t;
+    const idx = def.tiers.findIndex((x) => x.tier === t.tier);
+    return idx >= 0 && idx < def.tiers.length - 1 ? def.tiers[idx + 1] : t;
+  };
+  const first = maybeUpgrade(rollOnce());
   if (luckyTierChance <= 0 || rng() >= luckyTierChance) return first;
-  const second = rollOnce();
+  const second = maybeUpgrade(rollOnce());
   return second.tier > first.tier ? second : first;
 }
 
-function rollOneAffix(def: AffixDef, rng: () => number = Math.random, luckyTierChance = 0): Affix {
-  const t = rollTier(def, rng, luckyTierChance);
+function rollOneAffix(def: AffixDef, rng: () => number = Math.random, luckyTierChance = 0, upgradeTierChance = 0): Affix {
+  const t = rollTier(def, rng, luckyTierChance, upgradeTierChance);
   if (def.stat === "atk") {
     return {
       stat: def.stat,
@@ -77,9 +82,8 @@ function rollAffixes(
   const cappedCount = Math.min(count, available.length);
   for (let i = 0; i < cappedCount; i += 1) {
     const idx = Math.floor(rng() * available.length);
-    out.push(rollOneAffix(available.splice(idx, 1)[0], rng, luckyTierChance));
+    out.push(rollOneAffix(available.splice(idx, 1)[0], rng, luckyTierChance, upgradeTierChance));
   }
-  if (rng() < upgradeTierChance) boostAffixTier(pool, out, rng);
   return out;
 }
 

@@ -5,6 +5,7 @@ import { normalizeUnlockProgress } from "./unlocks.ts";
 import { countVariableAffixes } from "./itemAffixes.ts";
 import { affixLabel } from "./affixMeta.ts";
 import { INITIAL_RUNES, RUNE_DEFS } from "./runes.ts";
+import { CORE_FIXED_AFFIX, LEGENDARY_CORE_LUCKY_AFFIX } from "./coreContent.ts";
 
 const KEY = "forge-loop-save";
 const LEGACY_BLOCK_STAT = "critDmgTakenReductionPct";
@@ -63,6 +64,48 @@ function normalizeLegacyItemKinds(state: GameState): void {
     const raw = item as { kind?: string; slot?: string; recipeId?: string };
     if (raw.kind === "equipment" || raw.kind === "core") continue;
     raw.kind = raw.slot === "core" || raw.recipeId === "core" ? "core" : "equipment";
+  }
+}
+
+/** 一次性遷移（priorVersion < 11）：詞綴升階機率改為每詞每骰判定後威力翻倍，
+ *  把既有核心已 roll 的 upgradeTierChance 值減半，與新範圍對齊。
+ *  （注：原訂 v10 因開發期 HMR 時序，存檔在減半碼上線前已被標記 v10，故改用 v11 重跑一次。） */
+function halveUpgradeTierChanceOnce(state: GameState): void {
+  for (const item of allStoredItems(state)) {
+    if (item.kind !== "core") continue;
+    for (const aff of item.affixes) {
+      if (aff.stat === "upgradeTierChance") {
+        aff.value *= 0.5;
+        if (typeof aff.valueMax === "number") aff.valueMax *= 0.5;
+      }
+    }
+  }
+}
+
+/** 既有傳奇核心對齊現行規格：產能固定詞永遠為範圍最高 roll、幸運值更新為現行值。 */
+function normalizeLegendaryCores(state: GameState): void {
+  const prodMax = Math.max(...CORE_FIXED_AFFIX.tiers.map((t) => t.max));
+  const luckyVal = LEGENDARY_CORE_LUCKY_AFFIX.tiers[0].max;
+  for (const item of allStoredItems(state)) {
+    if (item.kind !== "core" || item.recipeId !== "legendary-core") continue;
+    for (const aff of item.affixes) {
+      if (aff.stat === "productivity") { aff.value = prodMax; aff.tier = 1; }
+      else if (aff.stat === "luckyTierChance") { aff.value = luckyVal; aff.tier = 1; }
+    }
+  }
+}
+
+/** 舊存檔：武器基底以單一 `atk` 欄位儲存（改成 atkMin/atkMax 區間之前）。
+ *  轉成 atkMin=atkMax=atk，否則新公式（deriveStats／DPS）讀不到、基底傷害歸零。 */
+function normalizeLegacyAtkBase(state: GameState): void {
+  for (const item of allStoredItems(state)) {
+    if (item.kind !== "equipment") continue;
+    const base = item.base as Record<string, number>;
+    if (typeof base.atk === "number" && typeof base.atkMin !== "number" && typeof base.atkMax !== "number") {
+      base.atkMin = base.atk;
+      base.atkMax = base.atk;
+      delete base.atk;
+    }
   }
 }
 
@@ -232,6 +275,7 @@ export function load(): GameState {
     const raw = localStorage.getItem(KEY);
     if (!raw) return createInitialState();
     const parsed = JSON.parse(raw);
+    const priorVersion = typeof (parsed as { version?: unknown })?.version === "number" ? (parsed as { version: number }).version : 0;
     preMigrateNormalize(parsed);
     const legacy = extractLegacyMachines(parsed);
     const migrated = migrate(parsed, createInitialState()) as GameState;
@@ -244,6 +288,8 @@ export function load(): GameState {
 
     normalizeLegacyAccessorySlots(migrated);
     normalizeLegacyItemKinds(migrated);
+    normalizeLegacyAtkBase(migrated);
+    normalizeLegendaryCores(migrated);
     normalizeLegacyRarity(migrated);
     normalizeLegacyLocks(migrated);
     normalizeLegacyLegendaryFlags(migrated);
@@ -253,6 +299,7 @@ export function load(): GameState {
     normalizeFilterEntries(migrated);
     normalizeProductionRows(migrated);
     normalizeUnlockProgress(migrated);
+    if (priorVersion < 11) halveUpgradeTierChanceOnce(migrated);
     migrated.version = SAVE_VERSION;
     restoreRuneSelection(migrated, parsed);
     return migrated;

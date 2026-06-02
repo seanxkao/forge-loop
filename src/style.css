@@ -6,10 +6,13 @@
   --text: #e6e1f5;
   --muted: #8a83a8;
   --accent: #7c5cff;
+  --accent2: #4a8a80; /* 次要控制色（步進 ×10／÷10）：柔和冷青，與主紫作功能區隔 */
   --good: #4caf50;
   --bad: #e2574c;
   --gold: #ffd23f;
   --app-max-width: 1460px;
+  /* 左下資訊面板（裝備／角色／符文）最小高度：以「四詞裝備卡」為準 */
+  --info-min-h: 210px;
 }
 
 * {
@@ -249,18 +252,42 @@ body {
 }
 
 /* 戰鬥 */
+.battle-toggle {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 3;
+  background: color-mix(in srgb, var(--panel) 92%, #000);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 4px 12px;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.28);
+}
+.battle-toggle:hover {
+  border-color: var(--accent);
+}
+.main-battle.battle-collapsed .canvas-wrap {
+  display: none;
+}
 .canvas-wrap {
   width: 100%;
   background: #000;
   border-radius: 8px;
   overflow: hidden;
   line-height: 0;
-  flex: 0 0 auto;
+  flex: 0 1 auto; /* 空間不足時讓位給下方資訊面板 */
+  min-height: 0;
   position: relative;
 }
 #battle {
   width: 100%;
   height: auto;
+  max-height: 100%; /* 隨 canvas-wrap 縮放，內容以 contain 置中、不裁切 */
+  object-fit: contain;
   image-rendering: pixelated;
   display: block;
 }
@@ -364,14 +391,14 @@ body {
 .hero {
   margin-top: 12px;
   flex: 1 1 auto;
-  min-height: 0;
+  min-height: var(--info-min-h);
   overflow-y: auto;
   padding-right: 2px;
 }
 .runes-panel {
   margin-top: 12px;
   flex: 1 1 auto;
-  min-height: 0;
+  min-height: var(--info-min-h);
   overflow-y: auto;
   padding-right: 2px;
 }
@@ -515,7 +542,7 @@ body {
   margin-top: 12px;
   display: flex;
   flex: 1 1 auto;
-  min-height: 0;
+  min-height: var(--info-min-h);
   flex-direction: row;
   align-items: stretch;
   gap: 6px;
@@ -1065,6 +1092,14 @@ body {
   line-height: 1.5;
   overflow: hidden;
   margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  align-self: stretch; /* 撐滿格狀列高，DPS 的 margin-top:auto 才有空間推到底 */
+  min-height: 0;
+}
+/* 背包卡內：武器 DPS 推到 stats 區底部對齊（與裝備格一致） */
+.ii-stats .eq-dps {
+  margin-top: auto;
 }
 .aff-line {
   display: flex;
@@ -1083,6 +1118,29 @@ body {
   font-size: 14px;
   font-weight: 800;
   color: var(--text);
+}
+/* 武器物理 DPS：較大較粗、置底；自身上邊框充當分隔線 */
+.aff-line.eq-dps {
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--text);
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+/* 裝備格內：詞綴區撐滿剩餘高度，DPS 推到底部對齊 */
+.eq-slot .eq-stats {
+  display: flex;
+  flex-direction: column;
+}
+.eq-slot .eq-stats .eq-dps {
+  margin-top: auto;
+}
+/* 固定詞綴／基底 與 變動詞綴 之間的分隔線 */
+.aff-divider {
+  height: 0;
+  margin: 10px 0;
+  border-top: 1px solid var(--line);
 }
 .ii-btns {
   display: flex;
@@ -1593,6 +1651,11 @@ body {
   font-size: 12px;
   line-height: 1.5;
 }
+.fs-estimate__num {
+  color: var(--gold);
+  font-size: 14px;
+  font-weight: 800;
+}
 .btn-sweep {
   margin-top: 6px;
   width: 100%;
@@ -1834,17 +1897,18 @@ body {
   flex: 1;
 }
 .prod-row__filter {
-  background: transparent;
-  border: 1px solid var(--accent);
-  color: var(--accent);
+  background: var(--accent);
+  border: none;
+  color: #fff;
   border-radius: 5px;
-  padding: 2px 8px;
+  padding: 4px 8px;
   cursor: pointer;
   font-size: 12px;
+  font-weight: 700;
   white-space: nowrap;
 }
 .prod-row__filter:hover {
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  filter: brightness(1.12);
 }
 .prod-row.idle {
   border-color: var(--bad);
@@ -2132,7 +2196,7 @@ body {
   gap: 10px;
 }
 .prod-row__body {
-  flex: 1 1 auto;
+  flex: 2 1 0;
   min-width: 0;
   display: flex;
   flex-direction: column;
@@ -2146,11 +2210,11 @@ body {
   min-width: 0;
 }
 .prod-row__order {
-  flex: 0 0 auto;
+  flex: 1 1 0;
   display: flex;
   flex-direction: column;
   gap: 6px;
-  min-width: 150px;
+  min-width: 0;
   padding-left: 10px;
   border-left: 1px solid var(--line);
 }
@@ -2283,34 +2347,57 @@ body {
   margin-top: 6px;
 }
 .prod-row__countbtns {
-  display: flex;
-  align-items: stretch;
-  gap: 6px;
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 4px;
+}
+.prod-row__countbtns .mc-mini-btn {
+  min-width: 0;
+  padding: 9px 10px;
+  font-size: 13px;
 }
 .prod-row__count {
   align-self: flex-start;
   white-space: nowrap;
 }
-.prod-row__addrow {
-  display: flex;
+/* 訂單：＋量／×÷ 兩列格狀，清空在右側佔滿高度 */
+.order-stepgrid {
+  flex: 1 1 auto;
+  display: grid;
+  grid-template-columns: 1fr auto;
   gap: 4px;
 }
-.prod-row__addrow .mc-mini-btn {
+.order-stepgrid .mc-mini-btn {
   min-width: 0;
-  padding: 0 12px;
+  padding: 9px 10px;
   font-size: 13px;
 }
-.prod-row__stepstack {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
-.prod-row__stepstack .mc-mini-btn {
+.order-btns .order-clear {
+  flex: 0 0 auto;
   min-width: 0;
-  flex: 1;
-  padding: 0 8px;
+  padding: 0 12px;
+}
+/* ×10／÷10 小按鈕：與增減列等高、字較小；改用次要青色與加減（紫）作功能區隔。
+   外框＝已達上/下限不可調，實心＝可調整（沿用既有可互動語意，只是換色相）。 */
+.mc-mini-btn.step-mul {
+  min-width: 0;
+  padding: 0 9px;
   font-size: 10px;
   line-height: 1.1;
+  background: transparent;
+  border-color: color-mix(in srgb, var(--accent2) 60%, var(--line));
+  color: var(--accent2);
+}
+.mc-mini-btn.step-mul:hover {
+  background: color-mix(in srgb, var(--accent2) 14%, transparent);
+}
+.mc-mini-btn.step-mul.ready {
+  background: var(--accent2);
+  border-color: var(--accent2);
+  color: #fff;
+}
+.mc-mini-btn.step-mul.ready:hover {
+  filter: brightness(1.1);
 }
 /* 底部素材列：組裝機庫存與素材以分隔線區隔 */
 .mat--assembler {

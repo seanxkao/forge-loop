@@ -45,9 +45,10 @@ canvas.id = "battle";
 const renderer = new BattleRenderer(canvas);
 
 const fx: CombatFx = {
-  onHeroAttack: (d, c) => renderer.heroAttacked(d, c),
-  onEnemyAttack: (d, blocked) => renderer.enemyAttacked(d, blocked),
-  onDrop: (mat, q) => renderer.drop(`+${q}${MATERIALS[mat]?.icon ?? ""}`),
+  // 戰鬥隱藏時不產生任何浮動文字／攻擊特效（不繪製、也不累積）。
+  onHeroAttack: (d, c) => { if (!ui.isBattleHidden()) renderer.heroAttacked(d, c); },
+  onEnemyAttack: (d, blocked) => { if (!ui.isBattleHidden()) renderer.enemyAttacked(d, blocked); },
+  onDrop: (mat, q) => { if (!ui.isBattleHidden()) renderer.drop(`+${q}${MATERIALS[mat]?.icon ?? ""}`); },
   onStageClear: () => ui.refresh(state),
 };
 
@@ -189,7 +190,7 @@ const loop = new GameLoop(
     }
   },
   () => {
-    renderer.draw(state);
+    if (!ui.isBattleHidden()) renderer.draw(state);
     ui.tick(state);
   },
 );

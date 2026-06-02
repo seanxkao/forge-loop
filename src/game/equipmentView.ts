@@ -2,6 +2,7 @@ import type { AffixStat, EquipSlotId, Equipment, GameState, Item, Slot, StatBloc
 import { baseBonus } from "./progression.ts";
 import { affixLabel, isPctAffix } from "./affixMeta.ts";
 import { affixBonusMultiplier } from "./itemAffixes.ts";
+import { HERO_BASE, HERO_BASE_INTERVAL } from "./heroBase.ts";
 
 export type EquipmentViewKey = AffixStat | "physicalDamage";
 
@@ -110,6 +111,23 @@ export function getWeaponPhysicalDamage(state: GameState, eq: Equipment): { min:
     min: baseAtkMin * (1 + localPhysPct),
     max: baseAtkMax * (1 + localPhysPct),
   };
+}
+
+/** 武器物理 DPS：以「預設英雄基底 + 此武器的攻速／暴擊詞綴（含研究加成）」估算，
+ *  計入暴擊期望與攻速，不含符文、技能、轉生 power 等 buff。 */
+export function getWeaponPhysicalDps(state: GameState, eq: Equipment): number {
+  if (eq.slot !== "weapon") return 0;
+  const dmg = getWeaponPhysicalDamage(state, eq);
+  const avgHit = (dmg.min + dmg.max) / 2;
+  const values = getEquipmentValues(state, eq);
+  const haste = HERO_BASE.haste + (values.haste ?? 0);
+  const localHaste = HERO_BASE.localHastePct + (values.localHastePct ?? 0);
+  const interval = HERO_BASE_INTERVAL / ((1 + haste) * (1 + localHaste));
+  const attacksPerSec = interval > 0 ? 1 / interval : 0;
+  const critChance = Math.min(1, HERO_BASE.critChance + (values.critChance ?? 0));
+  const critMult = HERO_BASE.critMult + (values.critMult ?? 0);
+  const critFactor = 1 + critChance * (critMult - 1);
+  return avgHit * attacksPerSec * critFactor;
 }
 
 function getEquipmentValues(state: GameState, eq: Equipment): Record<string, number> {

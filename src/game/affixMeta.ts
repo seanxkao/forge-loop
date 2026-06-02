@@ -49,7 +49,7 @@ const LABELS: Record<AffixStat, string> = {
   productivity: "產能",
   machineSpeedPct: "機器速度",
   materialRefundPct: "返還材料",
-  upgradeTierChance: "提高詞綴階級",
+  upgradeTierChance: "詞綴升階機率",
   rarityBonus: "增加稀有度",
   luckyTierChance: "幸運詞綴階級",
   weightPhysical: "增加物理權重",
