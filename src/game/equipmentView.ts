@@ -1,4 +1,4 @@
-import type { AffixStat, EquipSlotId, Equipment, GameState, Item, Slot, StatBlock } from "./types.ts";
+import type { AffixStat, EquipSlotId, Equipment, GameState, Item, ItemRarity, Slot, StatBlock } from "./types.ts";
 import { baseBonus } from "./progression.ts";
 import { affixLabel, isPctAffix } from "./affixMeta.ts";
 import { affixBonusMultiplier } from "./itemAffixes.ts";
@@ -128,6 +128,23 @@ export function getWeaponPhysicalDps(state: GameState, eq: Equipment): number {
   const critMult = HERO_BASE.critMult + (values.critMult ?? 0);
   const critFactor = 1 + critChance * (critMult - 1);
   return avgHit * attacksPerSec * critFactor;
+}
+
+const RARITY_RANK: Record<ItemRarity, number> = { normal: 0, magic: 1, rare: 2, legendary: 3 };
+
+/** 排序鍵：物理 DPS、稀有度、變動詞綴數，或任一能力值（取「基底＋全部詞綴」相加後的生效值）。 */
+export type ItemSortKey = "physicalDamage" | "rarity" | "affixes" | AffixStat;
+
+/** 取得某道具用於排序的數值。能力值會把固定詞與變動詞相加（含研究加成）。 */
+export function getItemSortValue(state: GameState, item: Item, key: ItemSortKey): number {
+  if (key === "physicalDamage") {
+    return item.kind === "equipment" && item.slot === "weapon" ? getWeaponPhysicalDps(state, item) : 0;
+  }
+  if (key === "rarity") return RARITY_RANK[item.rarity];
+  if (key === "affixes") return item.affixes.filter((a) => !a.fixed).length;
+  const values = item.kind === "core" ? getCoreValues(state, item) : getEquipmentValues(state, item);
+  if (key === "atk") return ((values.atkMin ?? 0) + (values.atkMax ?? 0)) / 2;
+  return (values as Record<string, number>)[key] ?? 0;
 }
 
 function getEquipmentValues(state: GameState, eq: Equipment): Record<string, number> {

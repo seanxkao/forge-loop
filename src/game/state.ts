@@ -2,7 +2,7 @@ import type { GameState } from "./types.ts";
 import { STAGES } from "./content.ts";
 import { INITIAL_RUNES } from "./runes.ts";
 
-export const SAVE_VERSION = 11;
+export const SAVE_VERSION = 12;
 
 export function createInitialState(): GameState {
   return {

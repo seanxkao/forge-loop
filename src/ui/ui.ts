@@ -21,7 +21,7 @@ import { MATERIALS, STAGES, RECIPES, CORE_RECIPE, PROD_RECIPES } from "../game/c
 import type { ProdRecipeDef } from "../game/content.ts";
 import { deriveStats, attackInterval } from "../game/hero.ts";
 import { RUNE_DEFS, runeAttackSpeedMore } from "../game/runes.ts";
-import { getEquipmentComparisonRows, getWeaponPhysicalDps, findEquippedInEquipSlot } from "../game/equipmentView.ts";
+import { getEquipmentComparisonRows, getWeaponPhysicalDps, findEquippedInEquipSlot, getItemSortValue, type ItemSortKey } from "../game/equipmentView.ts";
 import { affixLabel, isPctAffix } from "../game/affixMeta.ts";
 import { materialDropMultiplier, powerMultiplier, researchStageGrowthFactor } from "../game/reincarnation.ts";
 import { rarityClassName } from "../game/rarity.ts";
@@ -89,6 +89,9 @@ export class UI {
   private activeBattleInfoTab: "stats" | "equipped" | "runes" =
     this.view.battleInfoTab === "stats" || this.view.battleInfoTab === "runes" ? this.view.battleInfoTab : "equipped";
   private activeProdTab = typeof this.view.prodTab === "number" && this.view.prodTab >= 0 ? this.view.prodTab : 0;
+  // 各分類（all/weapon/armor/accessory/core）各自的排序設定，刷新後沿用。
+  private bagSort: Record<string, BagSortCfg> =
+    this.view.bagSort && typeof this.view.bagSort === "object" ? this.view.bagSort : {};
   private currentState: GameState | null = null;
   private drawerEl!: HTMLElement;
   private tooltipEl!: HTMLElement;
@@ -344,6 +347,7 @@ export class UI {
         bagFilter: this.activeBagFilter,
         prodTab: this.activeProdTab,
         recipeTab: this.activeRecipeTab,
+        bagSort: this.bagSort,
       }));
     } catch { /* 忽略 */ }
   }
@@ -551,6 +555,14 @@ export class UI {
         this.persistView();
         if (this.currentState) { this.renderBagTabs(); this.renderBagFilter(this.currentState); this.renderEquipInv(this.currentState); this.renderWarehouse(this.currentState); }
         break;
+      case "bagSortDir": {
+        const cat = this.activeBagFilter;
+        const cur = this.bagSortFor(cat);
+        this.bagSort[cat] = { key: cur.key, dir: cur.dir === "desc" ? "asc" : "desc" };
+        this.persistView();
+        if (this.currentState) { this.renderBagTabs(); this.renderEquipInv(this.currentState); this.renderWarehouse(this.currentState); }
+        break;
+      }
       case "battleInfoTab":
         this.activeBattleInfoTab = arg === "equipped" || arg === "runes" ? arg : "stats";
         this.persistView();
@@ -642,6 +654,14 @@ export class UI {
 
   /** 規則行的「至少/至多」或數值下拉變更時，就地更新該規則。 */
   private onFilterRuleChange(e: Event): void {
+    const sortSel = (e.target as HTMLElement).closest?.("[data-bag-sort]") as HTMLSelectElement | null;
+    if (sortSel) {
+      const cat = this.activeBagFilter;
+      this.bagSort[cat] = { key: sortSel.value as ItemSortKey, dir: this.bagSortFor(cat).dir };
+      this.persistView();
+      if (this.currentState) { this.renderEquipInv(this.currentState); this.renderWarehouse(this.currentState); }
+      return;
+    }
     const field = (e.target as HTMLElement).closest?.("[data-rule-field]") as HTMLElement | null;
     if (!field) return;
     const ruleEl = field.closest(".fs-rule") as HTMLElement | null;
@@ -1180,13 +1200,26 @@ export class UI {
       </div>
       <div class="bag-filter-row">
         ${filterButtons.map((f) => `<button class="tab-btn bag-filter-btn${this.activeBagFilter === f.key ? " sel" : ""}" data-act="bagFilter" data-arg="${f.key}">${f.label}</button>`).join("")}
-      </div>`;
+      </div>
+      ${this.renderBagSortRow()}`;
     const warehouseTitle = this.root.querySelector("[data-bag-warehouse-title]") as HTMLElement | null;
     const equipHint = this.root.querySelector("[data-bag-equip-hint]") as HTMLElement | null;
     const equipTitle = this.root.querySelector("[data-bag-equip-title]") as HTMLElement | null;
     if (warehouseTitle) warehouseTitle.style.display = this.activeBagTab === "warehouse" ? "" : "none";
     if (equipHint) equipHint.style.display = this.activeBagTab === "main" ? "" : "none";
     if (equipTitle) equipTitle.style.display = this.activeBagTab === "main" ? "" : "none";
+  }
+
+  private renderBagSortRow(): string {
+    const cat = this.activeBagFilter;
+    const opts = SORT_OPTIONS[cat];
+    const cfg = this.bagSortFor(cat);
+    const options = opts.map((k) => `<option value="${k}"${k === cfg.key ? " selected" : ""}>${sortKeyLabel(k)}</option>`).join("");
+    return `<div class="bag-sort-row">
+        <span class="bag-sort-label">排序</span>
+        <select class="bag-sort-select" data-bag-sort>${options}</select>
+        <button class="tab-btn bag-sort-dir" data-act="bagSortDir" title="切換遞增／遞減">${cfg.dir === "desc" ? "▼ 遞減" : "▲ 遞增"}</button>
+      </div>`;
   }
 
   private renderFilterModal(state: GameState | null): void {
@@ -1280,7 +1313,7 @@ export class UI {
   private renderEquipInv(state: GameState): void {
     this.lastEquipLen = state.equipmentInv.length;
     this.els.equipInv.style.display = this.activeBagTab === "main" ? "" : "none";
-    const filteredItems = state.equipmentInv.filter((item) => this.matchesBagFilter(item));
+    const filteredItems = this.sortBagItems(state, state.equipmentInv.filter((item) => this.matchesBagFilter(item)));
     if (state.equipmentInv.length === 0) { this.els.equipInv.innerHTML = `<p class="empty-note">尚無裝備，去生產線做吧。</p>`; return; }
     const head = `<div class="inv-head"><span>${filteredItems.length} / ${state.equipmentInv.length} 件</span></div>`;
     let flashedEquipButton = false;
@@ -1306,7 +1339,7 @@ export class UI {
   private renderWarehouse(state: GameState): void {
     this.lastWareLen = state.warehouseInv.length;
     this.els.warehouse.style.display = this.activeBagTab === "warehouse" ? "" : "none";
-    const filteredItems = state.warehouseInv.filter((item) => this.matchesBagFilter(item));
+    const filteredItems = this.sortBagItems(state, state.warehouseInv.filter((item) => this.matchesBagFilter(item)));
     if (state.warehouseInv.length === 0) { this.els.warehouse.innerHTML = `<p class="empty-note">倉庫是空的。</p>`; return; }
     const head = `<div class="inv-head"><span>${filteredItems.length} / ${state.warehouseInv.length} 件</span></div>`;
     const items = filteredItems.slice(0, INV_RENDER_CAP).map((eq) => `<div class="inv-item ${rarityClassName(eq.rarity)}" data-uid="${eq.uid}" data-bag="ware" data-eqtip="ware:${eq.uid}">
@@ -1319,6 +1352,24 @@ export class UI {
     const moreNote = more > 0 ? `<p class="empty-note">…還有 ${more} 件（已隱藏以維持效能）</p>` : "";
     const emptyFiltered = filteredItems.length === 0 ? `<p class="empty-note">目前篩選下沒有道具。</p>` : "";
     this.els.warehouse.innerHTML = head + emptyFiltered + items + moreNote;
+  }
+
+  /** 取目前分類的排序設定（驗證鍵屬於該分類，否則回預設）。 */
+  private bagSortFor(cat: BagSortCat): BagSortCfg {
+    const cfg = this.bagSort[cat];
+    const opts = SORT_OPTIONS[cat];
+    if (cfg && opts.includes(cfg.key) && (cfg.dir === "asc" || cfg.dir === "desc")) return cfg;
+    return defaultBagSort(cat);
+  }
+
+  /** 依目前分類排序設定排序道具清單（不改動原陣列）。 */
+  private sortBagItems(state: GameState, items: Item[]): Item[] {
+    const cfg = this.bagSortFor(this.activeBagFilter);
+    return [...items].sort((a, b) => {
+      const av = getItemSortValue(state, a, cfg.key);
+      const bv = getItemSortValue(state, b, cfg.key);
+      return cfg.dir === "asc" ? av - bv : bv - av;
+    });
   }
 
   private matchesBagFilter(item: Item): boolean {
@@ -1615,6 +1666,33 @@ interface ViewState {
   bagFilter?: ItemSlot | "all";
   prodTab?: number;
   recipeTab?: "refine" | "equipment" | "machine";
+  bagSort?: Record<string, BagSortCfg>;
+}
+
+type BagSortCat = ItemSlot | "all";
+interface BagSortCfg {
+  key: ItemSortKey;
+  dir: "asc" | "desc";
+}
+
+/** 各分類可選的排序鍵（第一個為預設）。 */
+const SORT_OPTIONS: Record<BagSortCat, ItemSortKey[]> = {
+  all: ["rarity", "affixes"],
+  weapon: ["physicalDamage", "atk", "localPhysPct", "critChance", "critMult", "localHastePct", "rarity", "affixes"],
+  armor: ["hp", "def", "hpRegen", "dmgReductionPct", "blockChance", "rarity", "affixes"],
+  accessory: ["atk", "critChance", "critMult", "hp", "haste", "materialDropPct", "rarity", "affixes"],
+  core: ["productivity", "machineSpeedPct", "materialRefundPct", "upgradeTierChance", "rarityBonus", "luckyTierChance", "weightPhysical", "weightCrit", "weightSpeed", "weightLife", "weightDefense", "weightCraft", "rarity", "affixes"],
+};
+
+function sortKeyLabel(key: ItemSortKey): string {
+  if (key === "physicalDamage") return "物理 DPS";
+  if (key === "rarity") return "稀有度";
+  if (key === "affixes") return "變動詞綴數";
+  return affixLabel(key);
+}
+
+function defaultBagSort(cat: BagSortCat): BagSortCfg {
+  return { key: SORT_OPTIONS[cat][0], dir: "desc" };
 }
 const VIEW_KEY = "forge-loop-view";
 

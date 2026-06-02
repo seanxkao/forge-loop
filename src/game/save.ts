@@ -82,6 +82,24 @@ function halveUpgradeTierChanceOnce(state: GameState): void {
   }
 }
 
+/** 一次性遷移（priorVersion < 12）：所有點傷加倍（配合敵方血量／防禦 ×2，戰鬥維持中性）。
+ *  既有裝備已 roll 的點傷（武器／飾品基底 atkMin/atkMax 與 atk 詞綴）一併加倍，
+ *  否則敵方血/防雙倍而舊裝點傷未倍，戰力會被腰斬。 */
+function doubleFlatDamageOnce(state: GameState): void {
+  for (const item of allStoredItems(state)) {
+    if (item.kind !== "equipment") continue;
+    const base = item.base as Record<string, number>;
+    if (typeof base.atkMin === "number") base.atkMin *= 2;
+    if (typeof base.atkMax === "number") base.atkMax *= 2;
+    for (const aff of item.affixes) {
+      if (aff.stat === "atk") {
+        aff.value *= 2;
+        if (typeof aff.valueMax === "number") aff.valueMax *= 2;
+      }
+    }
+  }
+}
+
 /** 既有傳奇核心對齊現行規格：產能固定詞永遠為範圍最高 roll、幸運值更新為現行值。 */
 function normalizeLegendaryCores(state: GameState): void {
   const prodMax = Math.max(...CORE_FIXED_AFFIX.tiers.map((t) => t.max));
@@ -300,6 +318,7 @@ export function load(): GameState {
     normalizeProductionRows(migrated);
     normalizeUnlockProgress(migrated);
     if (priorVersion < 11) halveUpgradeTierChanceOnce(migrated);
+    if (priorVersion < 12) doubleFlatDamageOnce(migrated);
     migrated.version = SAVE_VERSION;
     restoreRuneSelection(migrated, parsed);
     return migrated;

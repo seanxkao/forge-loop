@@ -714,6 +714,30 @@ body {
 .bag-filter-btn {
   flex: 0 1 auto;
 }
+.bag-sort-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+.bag-sort-label {
+  font-size: 12px;
+  color: var(--muted);
+  flex: 0 0 auto;
+}
+.bag-sort-select {
+  flex: 1 1 auto;
+  min-width: 0;
+  background: var(--panel2);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 5px 8px;
+  font-size: 12px;
+}
+.bag-sort-dir {
+  flex: 0 0 auto;
+}
 .machine-card .mc-top {
   display: flex;
   align-items: center;
