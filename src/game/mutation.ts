@@ -116,8 +116,8 @@ export function mutateEquipment(item: Equipment, rng: () => number = Math.random
     // 已有詞的格：50/50 升／降
     result = r < 0.5 ? upgrade(item.affixes[pos]) : downgrade(pos);
   } else if (!hasVariant) {
-    // 空格 ＆ 無變異詞：40% 升（長一般詞 T1）／40% 降（空格→浪費）／20% 變異詞
-    result = r < 0.4 ? growNormal() : r < 0.8 ? { outcome: "wasted" } : growVariant();
+    // 空格 ＆ 無變異詞：50% 升（長一般詞 T1）／50% 變異詞
+    result = r < 0.5 ? growNormal() : growVariant();
   } else {
     // 空格但已有變異詞：20% 變異詞攤回升降 → 50% 升（長一般詞）／50% 浪費
     result = r < 0.5 ? growNormal() : { outcome: "wasted" };
