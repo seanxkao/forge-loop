@@ -10,6 +10,9 @@ export interface RuneDef {
 
 export const INITIAL_RUNES: RuneId[] = ["berserk_haste", "vital_regen"];
 
+/** 進化符文：英雄每層進化的比率（同進化使徒機制，數值較低）。 */
+export const RUNE_EVOLVE_RATE = 0.10;
+
 export const RUNE_DEFS: Record<RuneId, RuneDef> = {
   berserk_haste: {
     id: "berserk_haste",
@@ -24,6 +27,13 @@ export const RUNE_DEFS: Record<RuneId, RuneDef> = {
     icon: "\u16c9",
     summary: "\u6bcf\u79d2\u56de\u5fa9 3% \u6700\u5927\u751f\u547d",
     drawback: "\u526f\u4f5c\u7528\uff1a\u683c\u64cb\u6e1b\u50b7\u91cf\u6e1b\u534a",
+  },
+  evolve: {
+    id: "evolve",
+    name: "\u9032\u5316\u7b26\u6587",
+    icon: "\ud83e\uddec",
+    summary: "\u6230\u9b25\u4e2d\u6bcf 5 \u79d2\u8f2a\u6d41 +10% \u653b\u64ca\uff0f\u9632\u79a6\uff0f\u653b\u901f\uff08\u7d2f\u52a0\uff09",
+    drawback: "\u6b7b\u4ea1\u6216\u63db\u95dc\u6642\u5c64\u6578\u6b78\u96f6",
   },
 };
 

@@ -28,6 +28,11 @@ const TAGS: Record<AffixStat, AffixTag[]> = {
   weightLife: ["life", "craft"],
   weightDefense: ["defense", "craft"],
   weightCraft: ["craft"],
+  mutDoubleStrike: ["physical", "mutation"],
+  mutMaxHpPct: ["life", "mutation"],
+  mutLowHpRegen: ["life", "mutation"],
+  mutCritHeal: ["crit", "mutation"],
+  mutAmplify: ["mutation"],
 };
 
 const LABELS: Record<AffixStat, string> = {
@@ -58,6 +63,11 @@ const LABELS: Record<AffixStat, string> = {
   weightLife: "增加生命權重",
   weightDefense: "增加防禦權重",
   weightCraft: "增加製作權重",
+  mutDoubleStrike: "二連擊",
+  mutMaxHpPct: "最大生命%",
+  mutLowHpRegen: "低血秒回",
+  mutCritHeal: "暴擊回血",
+  mutAmplify: "詞綴增幅",
 };
 
 const PCT_STATS = new Set<AffixStat>([
@@ -82,6 +92,11 @@ const PCT_STATS = new Set<AffixStat>([
   "weightLife",
   "weightDefense",
   "weightCraft",
+  "mutDoubleStrike",
+  "mutMaxHpPct",
+  "mutLowHpRegen",
+  "mutCritHeal",
+  "mutAmplify",
 ]);
 
 export function affixTags(stat: AffixStat): AffixTag[] {

@@ -324,6 +324,52 @@ body {
   z-index: 2;
   pointer-events: none;
 }
+
+/* 技能／狀態列：canvas 下方流式列，左＝玩家符文、右＝敵人技能 */
+.ability-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  min-height: 30px;
+}
+.ability-bar__side {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.ability-bar__side--enemy {
+  justify-content: flex-end;
+}
+.abil-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  font-size: 17px;
+  line-height: 1;
+  background: color-mix(in srgb, var(--panel) 85%, #000);
+  border: 1px solid var(--accent);
+  border-radius: 7px;
+  cursor: help;
+}
+.abil-badge:hover {
+  border-color: var(--text);
+}
+.main-battle.battle-collapsed .ability-bar {
+  display: none;
+}
+.equip-tooltip--ability {
+  width: auto;
+  max-width: 260px;
+}
+.abil-tip__sub {
+  color: var(--muted);
+  font-size: 12px;
+  margin-top: 4px;
+}
 .battle-next-btn {
   pointer-events: auto;
   background: color-mix(in srgb, var(--accent) 88%, #fff);
@@ -1979,6 +2025,111 @@ body {
 /* 附加詞綴：以琥珀色標示，與一般詞綴區別 */
 .aff-augmented {
   color: #f0a85a;
+}
+/* 變異著色：變異詞／變異次數＝紫，升階＝紅，降階＝綠 */
+.aff-mut,
+.eq-mut {
+  color: #c08bff;
+}
+.aff-up {
+  color: #ff6b6b;
+}
+.aff-down {
+  color: #5fdd87;
+}
+/* 工藝・變異分頁 */
+.mutate-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+  margin-bottom: 8px;
+}
+.mutate-do {
+  width: 100%;
+  padding: 8px 12px;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+.mutate-do:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.mutate-hint {
+  margin: 0 0 10px;
+}
+.mutate-list {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.mutate-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 8px;
+  background: var(--panel2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 12px;
+}
+.mutate-row__name {
+  min-width: 0;
+}
+.mutate-row__rm {
+  min-width: 0;
+  padding: 3px 10px;
+}
+.mutate-row__rm:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.aff-chip {
+  display: inline-block;
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  margin-left: 4px;
+  background: color-mix(in srgb, var(--line) 60%, #000);
+  color: var(--muted);
+}
+.aff-chip--aug {
+  color: #f0a85a;
+}
+.aff-chip--mut {
+  color: #c08bff;
+}
+/* 試煉首入對話框 */
+.trial-intro {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text);
+  margin-bottom: 12px;
+}
+.trial-intro p {
+  margin: 2px 0;
+}
+.trial-res-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.trial-res-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  background: var(--panel2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 5px 10px;
+  font-size: 13px;
+}
+.trial-res-lv {
+  color: var(--muted);
+}
+.trial-res-lv b {
+  color: var(--gold);
 }
 .rt-name {
   font-weight: 600;

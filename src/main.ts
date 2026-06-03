@@ -9,6 +9,7 @@ import { GameLoop } from "./game/loop.ts";
 import { tickCombat, startStage, type CombatFx } from "./game/combat.ts";
 import { applyReincarnation } from "./game/reincarnation.ts";
 import { coerceUnlockedStageId } from "./game/unlocks.ts";
+import { findStage } from "./game/content.ts";
 import {
   tickProduction,
   placeMachine,
@@ -27,6 +28,7 @@ import {
 } from "./game/production.ts";
 import { equip, unequip, toggleItemLock, toWarehouse, fromWarehouse } from "./game/equipment.ts";
 import { doReroll, doAugment } from "./game/craft.ts";
+import { doMutate, doRemoveMutation } from "./game/mutation.ts";
 import { inBattle, queueLoadoutAction, effectiveRuneSelection, cancelPendingEquip, cancelPendingVacate } from "./game/loadout.ts";
 import { socketCore, unsocketCore } from "./game/machineCores.ts";
 import { tickDismantler, researchBase, researchAffix } from "./game/research.ts";
@@ -53,6 +55,7 @@ const fx: CombatFx = {
   onDrop: (mat, q) => { if (!ui.isBattleHidden()) renderer.drop(`+${q}${MATERIALS[mat]?.icon ?? ""}`); },
   onStageClear: () => ui.refresh(state),
   onHeroDied: () => ui.refresh(state), // 戰敗重來會套用待辦換裝／符文，刷新清除待套用標示
+  onTrialComplete: (result) => ui.showTrialResult(result),
 };
 
 function coresOf(s: GameState, target: CoreTarget): CoreSlots | null {
@@ -131,7 +134,11 @@ function importSave(): void {
 }
 
 const ui = new UI(root, canvas, {
-  onSelectStage: (id) => { startStage(state, id); ui.refresh(state); },
+  onSelectStage: (id) => {
+    startStage(state, id);
+    if (findStage(id)?.trial) state.progress.trialIntroSeen = true;
+    ui.refresh(state);
+  },
   onRestartStage: () => { startStage(state, state.combat.stageId); ui.refresh(state); },
   onToggleAutoAdvanceNext: () => { state.progress.autoAdvanceNext = !state.progress.autoAdvanceNext; ui.refresh(state); },
   onPlaceMachine: (tab, recipe) => { placeMachine(state, tab, recipe); ui.refresh(state); },
@@ -160,6 +167,20 @@ const ui = new UI(root, canvas, {
   onCraftAugment: (uid, stat, tier) => {
     const item = state.equipmentInv.find((i) => i.uid === uid && i.kind === "equipment");
     if (item) { doAugment(state, item as Equipment, stat, tier); ui.refresh(state); }
+  },
+  onMutate: (uid) => {
+    const item = state.equipmentInv.find((i) => i.uid === uid && i.kind === "equipment");
+    if (!item) return null;
+    const r = doMutate(state, item as Equipment);
+    ui.refresh(state);
+    return r;
+  },
+  onRemoveMutation: (uid, index) => {
+    const item = state.equipmentInv.find((i) => i.uid === uid && i.kind === "equipment");
+    if (!item) return false;
+    const ok = doRemoveMutation(state, item as Equipment, index);
+    ui.refresh(state);
+    return ok;
   },
   onEquip: (uid) => {
     if (inBattle(state)) {

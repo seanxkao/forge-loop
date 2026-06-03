@@ -2,6 +2,7 @@ import type { BaseResearchSlot, CoreItem, FilterEntry, GameState, Item } from ".
 import { deriveLegacyItemRarity } from "./rarity.ts";
 import { SAVE_VERSION, createInitialState } from "./state.ts";
 import { normalizeUnlockProgress } from "./unlocks.ts";
+import { fixRunawayResearch } from "./research.ts";
 import { countVariableAffixes } from "./itemAffixes.ts";
 import { affixLabel, affixTags, isPctAffix } from "./affixMeta.ts";
 import { INITIAL_RUNES, RUNE_DEFS } from "./runes.ts";
@@ -386,6 +387,7 @@ export function load(): GameState {
     if (priorVersion < 11) halveUpgradeTierChanceOnce(migrated);
     if (priorVersion < 12) doubleFlatDamageOnce(migrated);
     if (priorVersion < 14) migrateToCurrencyResearch(migrated);
+    if (priorVersion < 15) fixRunawayResearch(migrated);
     migrated.version = SAVE_VERSION;
     restoreRuneSelection(migrated, parsed);
     return migrated;

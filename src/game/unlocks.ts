@@ -1,4 +1,4 @@
-import { STAGES, PROD_RECIPES } from "./content.ts";
+import { STAGES, PROD_RECIPES, findStage } from "./content.ts";
 import type { AffixStat, CoreItem, GameState, Item, RecipeId } from "./types.ts";
 
 export const CORE_UNLOCK_STAGE_INDEX = 7;
@@ -66,6 +66,7 @@ export function highestUnlockedStageId(state: GameState): string {
 }
 
 export function coerceUnlockedStageId(state: GameState, requestedStageId: string): string {
+  if (findStage(requestedStageId)?.trial) return requestedStageId; // 試煉關直接放行
   const index = stageIndexById(requestedStageId);
   if (index >= 0 && index < clampUnlockedStageCount(state.progress.unlockedStageCount)) return requestedStageId;
   return highestUnlockedStageId(state);

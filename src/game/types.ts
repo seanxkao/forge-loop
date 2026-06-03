@@ -2,10 +2,10 @@ export type Slot = "weapon" | "armor" | "accessory";
 export type ItemSlot = Slot | "core";
 export type BaseResearchSlot = Slot | "core";
 export type EquipSlotId = "weapon" | "armor" | "accessory1" | "accessory2";
-export type RuneId = "berserk_haste" | "vital_regen";
+export type RuneId = "berserk_haste" | "vital_regen" | "evolve";
 export type ItemRarity = "normal" | "magic" | "rare" | "legendary";
 export type ItemKind = "equipment" | "core";
-export type AffixTag = "physical" | "crit" | "speed" | "life" | "defense" | "craft";
+export type AffixTag = "physical" | "crit" | "speed" | "life" | "defense" | "craft" | "mutation";
 export type MachineTargetKind = "row" | "lab";
 
 export interface StatBlock {
@@ -41,7 +41,13 @@ export type AffixStat =
   | "weightSpeed"
   | "weightLife"
   | "weightDefense"
-  | "weightCraft";
+  | "weightCraft"
+  // 變異詞專屬（無法正常骰／工藝取得，只能變異長出）：
+  | "mutDoubleStrike" // 武器：機率追加第二擊（10× 速度）
+  | "mutMaxHpPct" // 防具：最大生命 +%
+  | "mutLowHpRegen" // 防具：生命 <50% 時更多秒回 +%
+  | "mutCritHeal" // 飾品：暴擊時回復最大生命 +%
+  | "mutAmplify"; // 飾品：增幅同件其他詞綴效果 +%
 
 export interface MaterialDef {
   id: string;
@@ -55,6 +61,8 @@ export interface DropDef {
   min: number;
   max: number;
   chance: number;
+  /** 不受轉生素材掉落加成倍率影響（如突變原等特殊通貨）。 */
+  noMultiplier?: boolean;
 }
 
 export interface EnemyDef {
@@ -66,6 +74,10 @@ export interface EnemyDef {
   defPenPct: number;
   atkInterval: number;
   drops: DropDef[];
+  /** 黃金王：每秒回復最大血量的比例（如 0.02＝2%/s）。 */
+  healPctPerSec?: number;
+  /** 進化的使徒：每 5 秒輪流 +5% 原始攻擊／防禦／攻速（累加）。 */
+  evolve?: boolean;
 }
 
 export interface StageDef {
@@ -73,6 +85,14 @@ export interface StageDef {
   name: string;
   desc: string;
   waves: EnemyDef[][];
+  /** 試煉關：放在地圖「試煉」分頁、不在章節線性進度內。 */
+  trial?: boolean;
+  /** 此關研究加成倍率（deriveStats 套用；1＝全額、0.5＝減半、0＝無效）。 */
+  researchMult?: number;
+  /** 通關獎勵：reincResearch＝直接 +1 層輪迴研究加成。 */
+  clearReward?: "reincResearch";
+  /** 首次進入顯示的對話框文字。 */
+  intro?: string;
 }
 
 export interface MachineDef {
@@ -154,6 +174,12 @@ export interface Affix {
   fixed?: boolean;
   /** 以「附加」工藝打上去的詞綴：全裝僅一條，再附加會先移除舊的；UI 以不同顏色顯示。 */
   augmented?: boolean;
+  /** 變異詞（帶 mutation tag）：無法正常骰／工藝取得，每件最多 1 條，只有 2 階。 */
+  mutation?: boolean;
+  /** 由變異「空格升階」長出的一般詞（移除變異時整條刪除，視為原本不存在）。 */
+  mutCreated?: boolean;
+  /** 變異前的階／值快照（首次被變異升降階時記錄，供「移除變異」還原；變異詞／mutCreated 不需此欄）。 */
+  preMut?: { tier: number; value: number; valueMax?: number };
 }
 
 interface ItemBase {
@@ -170,6 +196,8 @@ export interface Equipment extends ItemBase {
   kind: "equipment";
   slot: Slot;
   base: PartialStats;
+  /** 已用變異次數（剩餘＝全域上限 − 此值）。 */
+  mutationsUsed?: number;
 }
 
 export interface CoreItem extends ItemBase {
@@ -246,6 +274,20 @@ export interface CombatState {
   enemyAtkTimer: number;
   clearPause: number;
   pendingStageId: string | null;
+  /** 當前關卡研究加成倍率（startStage 設定；1＝全額、0.5＝減半）。 */
+  researchMult: number;
+  /** 進化的使徒技能計時與累加層數（每 5 秒輪流 +X% 原始 atk/def/攻速）。 */
+  evolveTimer: number;
+  evolveAtk: number;
+  evolveDef: number;
+  evolveSpd: number;
+  evolveNext: number;
+  /** 進化符文：英雄自身的進化計時與累加層數（死亡／換關時歸零，跨波保留）。 */
+  heroEvolveTimer: number;
+  heroEvolveAtk: number;
+  heroEvolveDef: number;
+  heroEvolveSpd: number;
+  heroEvolveNext: number;
 }
 
 export type ReincarnationBuff = "research" | "materials" | "power";
@@ -279,6 +321,11 @@ export interface ProgressState {
   equippedGuideSeen: boolean;
   grantedLegendaryCore24: boolean;
   grantedLegendaryCore44: boolean;
+  trialIntroSeen: boolean;
+  /** 已從試煉獲得的研究加成層數（上限 5）。 */
+  trialResearchLayers: number;
+  /** 擊敗進化的使徒的累積次數：解鎖變異、決定每件變異次數上限 min(8, 2+此值)。 */
+  apostleWins: number;
 }
 
 export interface GameState {

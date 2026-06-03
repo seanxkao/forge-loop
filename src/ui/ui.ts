@@ -17,9 +17,10 @@ import type {
   EquipSlotId,
   RuneId,
 } from "../game/types.ts";
-import { MATERIALS, STAGES, RECIPES, CORE_RECIPE, PROD_RECIPES } from "../game/content.ts";
+import { MATERIALS, STAGES, TRIALS, RECIPES, CORE_RECIPE, PROD_RECIPES, findStage } from "../game/content.ts";
 import type { ProdRecipeDef } from "../game/content.ts";
 import { deriveStats, attackInterval } from "../game/hero.ts";
+import { currentEnemyDef, ENEMY_EVOLVE_RATE } from "../game/combat.ts";
 import { RUNE_DEFS, runeAttackSpeedMore } from "../game/runes.ts";
 import { getEquipmentComparisonRows, getWeaponPhysicalDps, findEquippedInEquipSlot, getItemSortValue, type ItemSortKey } from "../game/equipmentView.ts";
 import { affixLabel, isPctAffix } from "../game/affixMeta.ts";
@@ -28,10 +29,11 @@ import { rarityClassName } from "../game/rarity.ts";
 import { stageIndexById, unlockedStages, isRecipeUnlocked } from "../game/unlocks.ts";
 import { clampTooltipPosition } from "./tooltipPosition.ts";
 import { affixBonusMultiplier, countVariableAffixes } from "../game/itemAffixes.ts";
-import { DISMANTLE_CYCLE, stageCost, dismantleableCount, baseStageCost, baseBonus, baseItemsAvailable, essenceAvailable } from "../game/research.ts";
+import { DISMANTLE_CYCLE, stageCost, dismantleableCount, baseStageCost, baseBonus, baseItemsAvailable, essenceAvailable, type TrialResult } from "../game/research.ts";
 import { estimateFilterMatches } from "../game/filter.ts";
 import { effectiveRuneSelection, pendingVacatedSlots, resolvePendingSlots } from "../game/loadout.ts";
 import { craftableAffixDefs, craftEssenceCost, craftMaterialCost, rerollStatus, augmentStatus, CRAFT_MIN_TIER, CRAFT_MAX_TIER } from "../game/craft.ts";
+import { mutationCap, remainingMutations, mutationUnlocked, mutateStatus, removeMutationStatus, affixHasMutation, MUTAGEN, MUTAGEN_PER_MUTATE, type MutationResult } from "../game/mutation.ts";
 
 /** 核心插槽目標：生產行（tab,row）或研究室。 */
 export type CoreTarget =
@@ -58,6 +60,8 @@ export interface UICallbacks {
   onResearchAffix(stat: string): void;
   onCraftReroll(uid: number, stat: string, tier: number): void;
   onCraftAugment(uid: number, stat: string, tier: number): void;
+  onMutate(uid: number): MutationResult | null;
+  onRemoveMutation(uid: number, index: number): boolean;
   onEquip(uid: number): void;
   onUnequip(slot: EquipSlotId): void;
   onCancelPendingEquip(uid: number): void;
@@ -115,6 +119,12 @@ export class UI {
   private tabSettingsModalEl!: HTMLElement;
   private craftPickModalEl!: HTMLElement;
   private craftPickOpen = false;
+  private stageMapTab: "chapter" | "trial" = "chapter";
+  private trialIntroModalEl!: HTMLElement;
+  private trialIntroOpen = false;
+  private trialIntroId: string | null = null;
+  private trialResultModalEl!: HTMLElement;
+  private trialResult: TrialResult | null = null;
   private craftPickSort: BagSortCfg = { key: "rarity", dir: "desc" };
   private craftPickFilter: Slot | "all" = "all";
   private toastEl!: HTMLElement;
@@ -129,7 +139,7 @@ export class UI {
   private bagFilterModalType: ItemSlot | null = null;
   private recipeTarget: { tab: number; row: number | null } | null = null;
   private craftUid: number | null = null;
-  private craftTab: "reroll" | "augment" = "reroll";
+  private craftTab: "reroll" | "augment" | "mutate" = "reroll";
   private craftTier: Record<string, number> = {};
   private activeRecipeTab: "refine" | "equipment" | "machine" =
     this.view.recipeTab === "equipment" || this.view.recipeTab === "machine" || this.view.recipeTab === "refine" ? this.view.recipeTab : "refine";
@@ -142,6 +152,7 @@ export class UI {
   private els!: {
     battleActions: HTMLElement;
     battleOptions: HTMLElement;
+    abilityBar: HTMLElement;
     battleInfoTabs: HTMLElement;
     hero: HTMLElement;
     runes: HTMLElement;
@@ -195,6 +206,7 @@ export class UI {
   private lastEquipLen = -1;
   private lastTickTab: string | null = null;
   private lastResearchSig = -1; // 研究／基底研究階數總和，變動時即時重繪裝備顯示
+  private abilityBarSig = "\0"; // 技能列當前內容簽章，變動時才重建（避免每幀重建造成 hover 閃爍）
 
   constructor(private root: HTMLElement, private canvas: HTMLCanvasElement, private cb: UICallbacks) {
     this.build();
@@ -219,6 +231,7 @@ export class UI {
           <div class="canvas-wrap">
             <div class="battle-options" data-zone="battleOptions"></div>
           </div>
+          <div class="ability-bar" data-zone="abilityBar" hidden></div>
           <div class="battle-subtabs" data-zone="battleInfoTabs"></div>
           <div class="hero" data-zone="hero"></div>
           <div class="runes-panel" data-zone="runes"></div>
@@ -275,12 +288,15 @@ export class UI {
     this.tabSettingsModalEl = this.makeModal(() => { this.tabSettingsOpen = false; this.renderTabSettingsModal(this.currentState); });
     this.craftPickModalEl = this.makeModal(() => { this.craftPickOpen = false; this.renderCraftPickModal(this.currentState); });
     this.craftPickModalEl.addEventListener("change", (e) => this.onFilterRuleChange(e));
+    this.trialIntroModalEl = this.makeModal(() => { this.trialIntroOpen = false; this.renderTrialIntroModal(this.currentState); });
+    this.trialResultModalEl = this.makeModal(() => { this.trialResult = null; this.renderTrialResultModal(); });
     this.toastEl = this.root.querySelector<HTMLElement>("[data-ui-toast]")!;
 
     const z = (n: string) => this.root.querySelector(`[data-zone="${n}"]`) as HTMLElement;
     this.els = {
       battleActions: z("battleActions"),
       battleOptions: z("battleOptions"),
+      abilityBar: z("abilityBar"),
       battleInfoTabs: z("battleInfoTabs"),
       hero: z("hero"),
       runes: z("runes"),
@@ -392,6 +408,22 @@ export class UI {
   }
 
   private onHoverMove(e: MouseEvent): void {
+    const abil = (e.target as HTMLElement).closest("[data-abiltip]") as HTMLElement | null;
+    if (abil) {
+      const key = abil.dataset.abiltip ?? "";
+      if (key !== this.tooltipKey) {
+        this.tooltipKey = key;
+        const sub = abil.dataset.abilSub;
+        this.tooltipEl.classList.add("equip-tooltip--ability");
+        this.tooltipEl.innerHTML =
+          `<div class="equip-tooltip__title">${abil.dataset.abilName ?? ""}</div>` +
+          `<div class="equip-tooltip__detail">${abil.dataset.abilEffect ?? ""}</div>` +
+          (sub ? `<div class="abil-tip__sub">${sub}</div>` : "");
+        this.tooltipEl.hidden = false;
+      }
+      this.positionTooltip(e.clientX, e.clientY);
+      return;
+    }
     const target = (e.target as HTMLElement).closest("[data-eqtip]") as HTMLElement | null;
     if (!target || !this.currentState) { this.hideTooltip(); return; }
     const eq = this.resolveTooltipEquipment(target, this.currentState);
@@ -423,6 +455,7 @@ export class UI {
       : null;
     const compareTarget = equipped?.uid === eq.uid ? null : equipped;
     const rows = getEquipmentComparisonRows(state, eq, compareTarget);
+    this.tooltipEl.classList.remove("equip-tooltip--ability");
     this.tooltipEl.innerHTML = `
       <div class="equip-tooltip__title">${eq.icon} ${eq.name}</div>
       <div class="equip-tooltip__subtitle">${compareTarget ? `對比目前裝備：${compareTarget.icon} ${compareTarget.name}` : "目前裝備"}</div>
@@ -469,11 +502,34 @@ export class UI {
           this.renderBagTabs();
         }
         break;
-      case "stage":
+      case "stage": {
+        const st = findStage(arg);
+        if (st?.trial && this.currentState && !this.currentState.progress.trialIntroSeen) {
+          this.trialIntroId = arg;
+          this.trialIntroOpen = true;
+          this.renderTrialIntroModal(this.currentState);
+          break; // 首次進入：先顯示對話框，按「進入試煉」才開始
+        }
         this.stageModalOpen = false;
         this.renderStageModal(this.currentState);
         this.cb.onSelectStage(arg);
         break;
+      }
+      case "stageMapTab":
+        this.stageMapTab = arg === "trial" ? "trial" : "chapter";
+        this.renderStageModal(this.currentState);
+        break;
+      case "enterTrial": {
+        const id = this.trialIntroId;
+        this.trialIntroOpen = false;
+        this.renderTrialIntroModal(this.currentState);
+        this.stageModalOpen = false;
+        this.renderStageModal(this.currentState);
+        if (id) this.cb.onSelectStage(id);
+        break;
+      }
+      case "closeTrialIntro": this.trialIntroOpen = false; this.renderTrialIntroModal(this.currentState); break;
+      case "closeTrialResult": this.trialResult = null; this.renderTrialResultModal(); break;
       case "restartStage": this.cb.onRestartStage(); break;
       case "openStageMap": this.stageModalOpen = true; this.renderStageModal(this.currentState); break;
       case "closeStageMap": this.stageModalOpen = false; this.renderStageModal(this.currentState); break;
@@ -678,11 +734,20 @@ export class UI {
         this.craftPickFilter = arg === "all" ? "all" : (arg as Slot);
         this.renderCraftPickModal(this.currentState);
         break;
-      case "craftTab": this.craftTab = arg === "augment" ? "augment" : "reroll"; if (this.currentState) this.renderCraft(this.currentState); break;
+      case "craftTab": this.craftTab = arg === "augment" ? "augment" : arg === "mutate" ? "mutate" : "reroll"; if (this.currentState) this.renderCraft(this.currentState); break;
       case "craftTierUp": this.craftTier[arg] = this.clampCraftTier((this.craftTier[arg] ?? CRAFT_MIN_TIER) + 1); if (this.currentState) this.renderCraft(this.currentState); break;
       case "craftTierDown": this.craftTier[arg] = this.clampCraftTier((this.craftTier[arg] ?? CRAFT_MIN_TIER) - 1); if (this.currentState) this.renderCraft(this.currentState); break;
       case "craftReroll": if (this.craftUid != null) this.cb.onCraftReroll(this.craftUid, arg, this.clampCraftTier(this.craftTier[arg] ?? CRAFT_MIN_TIER)); break;
       case "craftAugment": if (this.craftUid != null) this.cb.onCraftAugment(this.craftUid, arg, this.clampCraftTier(this.craftTier[arg] ?? CRAFT_MIN_TIER)); break;
+      case "craftMutate":
+        if (this.craftUid != null) {
+          const r = this.cb.onMutate(this.craftUid);
+          if (r) this.showToast(describeMutation(r));
+        }
+        break;
+      case "craftRemoveMut":
+        if (this.craftUid != null && this.cb.onRemoveMutation(this.craftUid, Number(arg))) this.showToast("已移除該詞的變異");
+        break;
       // ---- 輪迴 ----
       case "victoryContinue": this.cb.onVictoryContinue(); break;
       case "reincarnate": this.cb.onReincarnate(arg as ReincarnationBuff); break;
@@ -755,6 +820,7 @@ export class UI {
     this.renderSettingsModal();
     this.renderTabSettingsModal(state);
     this.renderCraftPickModal(state);
+    this.renderTrialIntroModal(state);
     this.renderCoreModal(state);
     this.renderVictoryModal(state);
     const reincTab = this.root.querySelector<HTMLElement>("[data-reinc-tab]");
@@ -771,8 +837,47 @@ export class UI {
     this.baseFlashUntil = { weapon: 0, armor: 0, accessory: 0, core: 0 };
   }
 
+  /** 技能／狀態列：當前敵人的特殊能力（左＝玩家符文，右＝敵人）；簽章不變時不重建（避免 hover 閃爍）。 */
+  private renderAbilityBar(state: GameState): void {
+    interface Abil { key: string; icon: string; name: string; effect: string; sub?: string; }
+    const enemy = currentEnemyDef(state);
+    const enemyAbils: Abil[] = [];
+    if ((enemy.defPenPct ?? 0) > 0) {
+      enemyAbils.push({ key: `fang:${enemy.defPenPct}`, icon: "🦷", name: "利牙", effect: `穿透 ${Math.round((enemy.defPenPct ?? 0) * 100)}% 固定防禦` });
+    }
+    if (enemy.healPctPerSec) {
+      enemyAbils.push({ key: `heal:${enemy.healPctPerSec}`, icon: "💚", name: "再生", effect: `每秒回復 ${Math.round(enemy.healPctPerSec * 100)}% 生命` });
+    }
+    if (enemy.evolve) {
+      enemyAbils.push({ key: "evolve", icon: "🧬", name: "進化", effect: `每 5 秒依序增加 ${Math.round(ENEMY_EVOLVE_RATE * 100)}% 攻擊、防禦、攻速（累加）` });
+    }
+    const heroAbils: Abil[] = [];
+    const rune = state.runes.selected;
+    if (rune) {
+      const def = RUNE_DEFS[rune];
+      heroAbils.push({ key: `rune:${rune}`, icon: def.icon, name: def.name, effect: def.summary, sub: def.drawback });
+    }
+
+    const sig = `${heroAbils.map((a) => a.key).join(",")}|${enemyAbils.map((a) => a.key).join(",")}`;
+    if (sig === this.abilityBarSig) return;
+    this.abilityBarSig = sig;
+
+    if (heroAbils.length === 0 && enemyAbils.length === 0) {
+      this.els.abilityBar.hidden = true;
+      this.els.abilityBar.innerHTML = "";
+      return;
+    }
+    const badge = (a: Abil) =>
+      `<span class="abil-badge" data-abiltip="${a.key}" data-abil-name="${a.icon} ${a.name}" data-abil-effect="${a.effect}" data-abil-sub="${a.sub ?? ""}">${a.icon}</span>`;
+    this.els.abilityBar.hidden = false;
+    this.els.abilityBar.innerHTML =
+      `<div class="ability-bar__side ability-bar__side--hero">${heroAbils.map(badge).join("")}</div>` +
+      `<div class="ability-bar__side ability-bar__side--enemy">${enemyAbils.map(badge).join("")}</div>`;
+  }
+
   tick(state: GameState): void {
     this.currentState = state;
+    this.renderAbilityBar(state);
     this.tabBtnEls.bag?.classList.toggle("flash-guide", state.progress.craftedEquipmentOnce && !state.progress.bagGuideSeen);
     const s = deriveStats(state);
     const setHV = (k: string, v: string) => { const el = this.heroVals[k]; if (el) el.textContent = v; };
@@ -1026,12 +1131,66 @@ export class UI {
 
   private renderStageModal(state: GameState | null): void {
     if (!state || !this.stageModalOpen) { this.stageModalEl.hidden = true; this.stageModalEl.innerHTML = ""; return; }
+    const tab = this.stageMapTab;
+    const tabs = `<div class="bag-tab-row">
+        <button class="tab-btn${tab === "chapter" ? " sel" : ""}" data-act="stageMapTab" data-arg="chapter">章節</button>
+        <button class="tab-btn${tab === "trial" ? " sel" : ""}" data-act="stageMapTab" data-arg="trial">試煉</button>
+      </div>`;
+    const body = tab === "trial" ? this.renderTrials(state) : `<div class="stages">${this.renderStages(state)}</div>`;
     this.stageModalEl.innerHTML = `
       <div class="modal-card modal-card--stage" role="dialog" aria-modal="true" aria-label="地圖選關">
-        <div class="modal-head"><h3>地圖選關</h3><button class="modal-close" data-act="closeStageMap">關閉</button></div>
-        <div class="stages">${this.renderStages(state)}</div>
+        <div class="modal-head"><h3>地圖</h3><button class="modal-close" data-act="closeStageMap">關閉</button></div>
+        ${tabs}
+        ${body}
       </div>`;
     this.stageModalEl.hidden = false;
+  }
+
+  private renderTrials(state: GameState): string {
+    const list = TRIALS.map((s) => {
+      const cur = s.id === state.combat.stageId ? " sel" : "";
+      return `<button class="stage-btn${cur}" data-act="stage" data-arg="${s.id}" title="${s.desc}">
+        <span class="stage-btn__name">${s.name}</span>
+        <span class="stage-btn__desc">${s.desc}</span>
+      </button>`;
+    }).join("");
+    return `<div class="stages">${list}</div>`;
+  }
+
+  private renderTrialIntroModal(state: GameState | null): void {
+    if (!state || !this.trialIntroOpen) { this.trialIntroModalEl.hidden = true; this.trialIntroModalEl.innerHTML = ""; return; }
+    const st = this.trialIntroId ? findStage(this.trialIntroId) : undefined;
+    const text = (st?.intro ?? "").split("\n").map((line) => `<p>${line || "&nbsp;"}</p>`).join("");
+    this.trialIntroModalEl.innerHTML = `
+      <div class="modal-card modal-card--settings" role="dialog" aria-modal="true" aria-label="${st?.name ?? "試煉"}">
+        <div class="modal-head"><h3>${st?.name ?? "試煉"}</h3><button class="modal-close" data-act="closeTrialIntro">關閉</button></div>
+        <div class="trial-intro">${text}</div>
+        <button class="btn-sweep" data-act="enterTrial">進入試煉</button>
+      </div>`;
+    this.trialIntroModalEl.hidden = false;
+  }
+
+  /** 試煉通關結算：顯示各研究等級變化（由主迴圈的 onTrialComplete 觸發）。 */
+  showTrialResult(result: TrialResult): void {
+    this.trialResult = result;
+    this.renderTrialResultModal();
+  }
+
+  private renderTrialResultModal(): void {
+    if (!this.trialResult) { this.trialResultModalEl.hidden = true; this.trialResultModalEl.innerHTML = ""; return; }
+    const { changes, refunded, capped } = this.trialResult;
+    const rows = changes.map((c) => `<div class="trial-res-row"><span>${c.label}</span><span class="trial-res-lv">LV ${c.from} → <b>LV ${c.to}</b></span></div>`).join("");
+    const body = capped
+      ? `<p class="hint">已達試煉研究加成上限（5 層），本次不再提供加成。</p>`
+      : `<p class="hint">獲得一層研究折扣，已投入的研究資源依新成本重算。</p>
+        ${rows ? `<div class="trial-res-list">${rows}</div>` : ""}
+        ${refunded ? `<p class="hint">溢出素材已退還。</p>` : ""}`;
+    this.trialResultModalEl.innerHTML = `
+      <div class="modal-card modal-card--settings" role="dialog" aria-modal="true" aria-label="試煉完成">
+        <div class="modal-head"><h3>試煉完成</h3><button class="modal-close" data-act="closeTrialResult">關閉</button></div>
+        ${body}
+      </div>`;
+    this.trialResultModalEl.hidden = false;
   }
 
   private renderSettingsModal(): void {
@@ -1469,11 +1628,22 @@ export class UI {
       : `<div class="inv-item craft-slot-card craft-slot-empty" data-act="openCraftPick">＋ 點擊從背包選擇裝備</div>`;
     const slot = `<div class="craft-slot-grid">${slotCard}</div>`;
 
+    // 未解鎖時若停在變異分頁，退回重鑄
+    const mutOpen = mutationUnlocked(state);
+    if (this.craftTab === "mutate" && !mutOpen) this.craftTab = "reroll";
+    const mutTab = mutOpen
+      ? `<button class="tab-btn${this.craftTab === "mutate" ? " sel" : ""}" data-act="craftTab" data-arg="mutate">變異</button>`
+      : "";
     const subtabs = `<div class="craft-subtabs">
       <button class="tab-btn${this.craftTab === "reroll" ? " sel" : ""}" data-act="craftTab" data-arg="reroll">重鑄</button>
       <button class="tab-btn${this.craftTab === "augment" ? " sel" : ""}" data-act="craftTab" data-arg="augment">附加</button>
+      ${mutTab}
     </div>`;
-    const body = sel ? this.renderCraftRows(state, sel) : `<p class="hint">選擇一件裝備以進行工藝。</p>`;
+    const body = sel
+      ? this.craftTab === "mutate"
+        ? this.renderCraftMutate(state, sel)
+        : this.renderCraftRows(state, sel)
+      : `<p class="hint">選擇一件裝備以進行工藝。</p>`;
 
     this.els.craft.innerHTML = `${slot}${subtabs}<div class="craft-body">${body}</div>`;
   }
@@ -1548,6 +1718,41 @@ export class UI {
         <button class="mc-mini-btn craft-row__do" data-act="${isReroll ? "craftReroll" : "craftAugment"}" data-arg="${stat}"${disabled ? " disabled" : ""}>${isReroll ? "重鑄" : "附加"}</button>
       </div>`;
     }).join("");
+  }
+
+  /** 工藝・變異分頁：隨機變異（升／降／變異詞）＋ 指定移除某詞的變異。 */
+  private renderCraftMutate(state: GameState, item: Equipment): string {
+    const cap = mutationCap(state);
+    const remaining = remainingMutations(state, item);
+    const have = state.inventory[MUTAGEN] ?? 0;
+    const mutagenIcon = MATERIALS[MUTAGEN]?.icon ?? "🧫";
+    const ms = mutateStatus(state, item);
+
+    const head = `<div class="mutate-head">
+      <span>剩餘變異次數 <b>${remaining}</b> / ${cap}</span>
+      <span>${mutagenIcon} 突變原 <b class="${have < MUTAGEN_PER_MUTATE ? "cost-lack" : ""}">${fmtNum(have)}</b></span>
+    </div>`;
+    const mutBtn = `<button class="mc-mini-btn mutate-do" data-act="craftMutate"${ms.ok ? "" : ` disabled title="無法變異：${ms.reason}"`}>變異（${mutagenIcon}${MUTAGEN_PER_MUTATE} ＋ 1 次）</button>`;
+    const hint = `<p class="hint mutate-hint">隨機挑一個詞位：升階（可破 T8、空格長新詞）40% ／ 降階（降到 0 消失）40% ／ 空格長變異詞 20%（已有詞的格或已有變異詞時，20% 攤回升降）。</p>`;
+
+    const rmOk = removeMutationStatus(state, item).ok;
+    const rows = item.affixes.length
+      ? item.affixes.map((aff, i) => {
+          const chips =
+            (aff.mutation ? `<span class="aff-chip aff-chip--mut">變異詞</span>` : "") +
+            (aff.mutCreated ? `<span class="aff-chip aff-chip--mut">變異生成</span>` : "") +
+            (aff.augmented ? `<span class="aff-chip aff-chip--aug">工藝</span>` : "") +
+            (aff.preMut ? `<span class="aff-chip">已變異</span>` : "");
+          const hasMut = affixHasMutation(aff);
+          const canRemove = rmOk && hasMut;
+          return `<div class="mutate-row">
+            <span class="mutate-row__name">${aff.label} <b>T${aff.tier}</b> ${formatViewValue(aff.value, !!aff.pct, aff.valueMax)} ${chips}</span>
+            <button class="mc-mini-btn mutate-row__rm" data-act="craftRemoveMut" data-arg="${i}"${canRemove ? "" : " disabled"}${hasMut ? "" : ' title="此詞無變異影響"'}>移除變異</button>
+          </div>`;
+        }).join("")
+      : `<p class="hint">此裝備目前沒有詞綴（變異可在空格長出新詞）。</p>`;
+
+    return `${head}${mutBtn}${hint}<div class="mutate-list">${rows}</div>`;
   }
 
   private renderResearch(): void {
@@ -1776,14 +1981,24 @@ function describeEquip(eq: Item, state: GameState, showBonus = true): string {
     const tierTag = a.fixed
       ? `<span class="aff-tier aff-tier--fixed">固定</span>`
       : `<span class="aff-tier">T${a.tier}</span>`;
-    const mainCls = a.augmented ? "aff-line__main aff-augmented" : "aff-line__main";
+    // 變異著色：變異詞紫、升階紅、降階綠；皆無則沿用附加詞琥珀
+    let mut = "";
+    if (a.mutation) mut = " aff-mut";
+    else if (a.mutCreated || (a.preMut && a.tier > a.preMut.tier)) mut = " aff-up";
+    else if (a.preMut && a.tier < a.preMut.tier) mut = " aff-down";
+    const mainCls = `aff-line__main${mut || (a.augmented ? " aff-augmented" : "")}`;
     return `<div class="aff-line"><span class="${mainCls}">+${val} ${a.label}${buff}</span>${tierTag}</div>`;
   };
   const fixedAff = eq.affixes.filter((a) => a.fixed).map(affLine);
   const varAff = [...eq.affixes].filter((a) => !a.fixed).sort((a, b) => a.stat.localeCompare(b.stat)).map(affLine);
+  // 變異次數（已用/上限）：解鎖後或已變異過才顯示
+  const used = eq.kind === "equipment" ? eq.mutationsUsed ?? 0 : 0;
+  const mutLine = used > 0
+    ? `<div class="aff-line eq-mut">變異 ${used}/${mutationCap(state)}</div>`
+    : "";
   const head = [base, ...fixedAff].filter(Boolean);
   const divider = head.length && varAff.length ? `<div class="aff-divider"></div>` : "";
-  return [...head, divider, ...varAff, dps].filter(Boolean).join("");
+  return [...head, divider, ...varAff, dps, mutLine].filter(Boolean).join("");
 }
 
 function renderTooltipRow(row: ReturnType<typeof getEquipmentComparisonRows>[number]): string {
@@ -1805,6 +2020,18 @@ function findItemByUid(state: GameState, uid: number): Item | null {
     }
   }
   return state.lab.cores.find((item) => item?.uid === uid) ?? null;
+}
+
+function describeMutation(r: MutationResult): string {
+  const name = r.stat ? affixLabel(r.stat) : "";
+  switch (r.outcome) {
+    case "upgrade": return `升階：${name} → T${r.tier}`;
+    case "downgrade": return `降階：${name} → T${r.tier}`;
+    case "removed": return `降階消失：${name}`;
+    case "grow": return `空格長出：${name} T${r.tier}`;
+    case "growVariant": return `長出變異詞：${name} T${r.tier}`;
+    default: return "變異無效果";
+  }
 }
 
 function formatViewValue(value: number, pct: boolean, valueMax?: number): string {

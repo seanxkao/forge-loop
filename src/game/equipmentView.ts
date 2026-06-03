@@ -127,7 +127,9 @@ export function getWeaponPhysicalDps(state: GameState, eq: Equipment): number {
   const critChance = Math.min(1, HERO_BASE.critChance + (values.critChance ?? 0));
   const critMult = HERO_BASE.critMult + (values.critMult ?? 0);
   const critFactor = 1 + critChance * (critMult - 1);
-  return avgHit * attacksPerSec * critFactor;
+  // 變異「二連擊」：每次命中有機率立即追加第二擊，等效攻擊次數 ×(1+機率)
+  const doubleStrike = eq.affixes.find((a) => a.stat === "mutDoubleStrike")?.value ?? 0;
+  return avgHit * attacksPerSec * critFactor * (1 + doubleStrike);
 }
 
 const RARITY_RANK: Record<ItemRarity, number> = { normal: 0, magic: 1, rare: 2, legendary: 3 };

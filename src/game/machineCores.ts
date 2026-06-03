@@ -38,6 +38,7 @@ export function emptyMachineCoreEffects(): MachineCoreEffects {
       life: 0,
       defense: 0,
       craft: 0,
+      mutation: 0,
     },
   };
 }

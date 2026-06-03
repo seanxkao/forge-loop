@@ -43,6 +43,8 @@ export const MATERIALS: Record<string, MaterialDef> = {
   shard: { id: "shard", name: "晶石", kind: "raw", icon: "🔹" },
   ingot: { id: "ingot", name: "金屬錠", kind: "intermediate", icon: "🟧" },
   crystal: { id: "crystal", name: "精晶", kind: "intermediate", icon: "💠" },
+  // 突變原：變異工藝的消耗通貨，僅進化試煉產出（黃金王 1、進化的使徒 2），不受素材掉落倍率影響。
+  mutagen: { id: "mutagen", name: "突變原", kind: "intermediate", icon: "🧫" },
 };
 
 // ---- 裝備：3 槽各一固定基底，詞綴池見 affixTable.csv（成本／基底待平衡） ----
@@ -232,3 +234,81 @@ function buildStages(): StageDef[] {
 }
 
 export const STAGES: StageDef[] = buildStages();
+
+// ---- 終局：試煉關（地圖「試煉」分頁；數值集中於此，便於調整）----
+// 數值依 1~20 關成長幅度外推到「第 24 關」：每階約 HP×1.31／ATK×1.25／DEF×1.20，
+// 第 24 關＝第 20 關 +4 階（HP×2.95、ATK×2.44、DEF×2.09）。錨點：一般怪 E_*[4][3]＝6136/208/56、尾王 BOSS_*[4]＝49200/180。
+const TRIAL_MOB: EnemyDef = {
+  name: "改造獸", icon: "🧬",
+  maxHp: 18000, atk: 460, def: 117,
+  defPenPct: 0, atkInterval: 1.15, drops: [],
+};
+const TRIAL_GOLD_KING: EnemyDef = {
+  name: "👑 黃金王", icon: "👑",
+  maxHp: 36000, atk: 460, def: 117,
+  defPenPct: 0, atkInterval: 1.0,
+  drops: [{ material: "mutagen", min: 1, max: 1, chance: 1, noMultiplier: true }],
+  healPctPerSec: 0.03,
+};
+const TRIAL_APOSTLE: EnemyDef = {
+  name: "💀 進化的使徒", icon: "🧬",
+  maxHp: 145000, atk: 390, def: 120,
+  defPenPct: 0, atkInterval: 0.95,
+  drops: [{ material: "mutagen", min: 2, max: 2, chance: 1, noMultiplier: true }],
+  evolve: true,
+};
+// 記憶試煉專屬敵人：數值暫沿用進化試煉的複製，名稱／icon 依 lore 改寫，待設計專屬機制與數值。
+const MEMORY_MOB: EnemyDef = {
+  name: "復甦戰士", icon: "🧟",
+  maxHp: 600, atk: 50, def: 25,
+  defPenPct: 0, atkInterval: 1.15, drops: [],
+};
+// 無名（高攻速）：暫沿用黃金王數值，但移除回血技能（回血屬進化試煉的黃金王，與無名 lore 矛盾）。高攻速／龜向待設計。
+const MEMORY_NAMELESS: EnemyDef = {
+  name: "👤 無名", icon: "👤",
+  maxHp: 1800, atk: 60, def: 25,
+  defPenPct: 0, atkInterval: 1.0, drops: [],
+};
+// 記憶的使徒：複製自進化的使徒、無進化 buff（純數值對拚）。
+const MEMORY_APOSTLE: EnemyDef = {
+  name: "💀 記憶的使徒", icon: "🧠",
+  maxHp: 5000, atk: 60, def: 35,
+  defPenPct: 0, atkInterval: 0.95, drops: [],
+};
+
+function trialWaves(mob: EnemyDef, mid: EnemyDef, boss: EnemyDef): EnemyDef[][] {
+  const waves: EnemyDef[][] = [];
+  for (let i = 0; i < 10; i += 1) {
+    if (i === 4) waves.push([{ ...mid }]);
+    else if (i === 9) waves.push([{ ...boss }]);
+    else waves.push([{ ...mob }]);
+  }
+  return waves;
+}
+
+export const TRIALS: StageDef[] = [
+  {
+    id: "trial-evolve",
+    name: "進化的試煉",
+    desc: "十波改造獸 · 敵人隨時間進化 · 掉落突變原、解鎖裝備變異",
+    trial: true,
+    intro: "【進化的試煉】\n· 十波改造獸，數值比照最終區。\n· 第 5 波：黃金王，每秒回血、會拖延時間。\n· 第 10 波：進化的使徒，每 5 秒輪流提升 20% 攻擊／防禦／攻速（持續累加），拖太久會打不贏。\n· 黃金王掉 1、進化的使徒掉 2 突變原；通關解鎖進化符文。\n· 每擊敗一次進化的使徒，提升裝備變異次數上限。",
+    waves: trialWaves(TRIAL_MOB, TRIAL_GOLD_KING, TRIAL_APOSTLE),
+  },
+  // 記憶試煉：複製自進化的試煉、取消進化 buff，文案依 lore 改寫。研究無效＋研究獎勵等機制暫沿用，待設計專屬數值與機制（高攻速無名、龜向設計、追憶實際效果）。
+  {
+    id: "trial-memory",
+    name: "記憶試煉",
+    desc: "十波 · 忘卻（研究加成無效）· 純數值對拚、鼓勵防守 · 通關得 1 層追憶",
+    trial: true,
+    researchMult: 0,
+    clearReward: "reincResearch",
+    intro: "【記憶試煉】\n· 關卡效果「忘卻」：此關研究加成全數歸零。\n· 復甦戰士成群來襲，數值比照最終區。\n· 中段：無名，攻勢凌厲。\n· 尾王：記憶的使徒——無特殊技能，純數值對拚，鼓勵穩紮穩打。\n· 通關獲得一層「追憶」：永久降低研究門檻、強化研究效果。",
+    waves: trialWaves(MEMORY_MOB, MEMORY_NAMELESS, MEMORY_APOSTLE),
+  },
+];
+
+/** 跨章節與試煉查關卡。 */
+export function findStage(id: string): StageDef | undefined {
+  return STAGES.find((s) => s.id === id) ?? TRIALS.find((s) => s.id === id);
+}

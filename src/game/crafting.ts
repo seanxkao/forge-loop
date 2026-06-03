@@ -88,6 +88,21 @@ function rollAffixes(
   return out;
 }
 
+/** 任意階（含超出最高定義階）的數值範圍：定義內直接取，超出則以最後兩階的線性差外推。
+ *  供變異「升階突破 T8」用；遞增曲線本為線性，故外推保持同步距。 */
+export function tierRange(def: AffixDef, tier: number): { min: number; max: number } {
+  const exact = def.tiers.find((t) => t.tier === tier);
+  if (exact) return { min: exact.min, max: exact.max };
+  const sorted = [...def.tiers].sort((a, b) => a.tier - b.tier);
+  const top = sorted[sorted.length - 1];
+  const prev = sorted[sorted.length - 2] ?? top;
+  const span = top.tier - prev.tier || 1;
+  const dMin = (top.min - prev.min) / span;
+  const dMax = (top.max - prev.max) / span;
+  const k = tier - top.tier;
+  return { min: top.min + dMin * k, max: top.max + dMax * k };
+}
+
 /** roll 指定 stat 的指定階級（值在該階範圍內 roll）；供工藝重鑄／附加使用。 */
 export function rollAffixAtTier(def: AffixDef, tier: number): Affix {
   const t = def.tiers.find((x) => x.tier === tier) ?? def.tiers[0];

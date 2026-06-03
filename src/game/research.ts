@@ -1,6 +1,7 @@
 import type { BaseResearchSlot, GameState, Affix, Item } from "./types.ts";
 import { researchStageGrowthFactor } from "./reincarnation.ts";
 import { machineCoreEffects } from "./machineCores.ts";
+import { affixLabel } from "./affixMeta.ts";
 
 const BASE_STAGE_BASE_COST = 5;
 const BASE_STRENGTH_PER_STAGE = 0.2;
@@ -110,4 +111,111 @@ export function tickDismantler(state: GameState, dt: number): void {
   }
 
   if (!hasDismantleable(state)) d.progress = 0;
+}
+
+export interface TrialChange {
+  label: string;
+  from: number;
+  to: number;
+}
+export interface TrialResult {
+  changes: TrialChange[];
+  refunded: boolean;
+  capped: boolean;
+}
+
+/** 試煉研究加成層數上限。 */
+export const TRIAL_RESEARCH_LAYER_CAP = 5;
+
+const BASE_RESEARCH_LABEL: Record<BaseResearchSlot, string> = {
+  weapon: "武器基底",
+  armor: "防具基底",
+  accessory: "飾品基底",
+  core: "核心基底",
+};
+
+/** 達 level 等所需的累積資源（各階成本和），用指定成長率。 */
+function totalSpend(level: number, baseCost: number, growth: number): number {
+  let sum = 0;
+  for (let i = 0; i < level; i += 1) sum += Math.max(1, Math.round(baseCost * growth ** i));
+  return sum;
+}
+/** 以 budget 在指定成長率下能升到幾等，並回傳剩餘。 */
+function relevel(budget: number, baseCost: number, growth: number): { level: number; leftover: number } {
+  let level = 0;
+  let remaining = budget;
+  for (;;) {
+    const cost = Math.max(1, Math.round(baseCost * growth ** level));
+    if (remaining < cost) break;
+    remaining -= cost;
+    level += 1;
+  }
+  return { level, leftover: remaining };
+}
+
+/** 試煉通關：+1 層輪迴研究折扣後，把「已達等級耗用的資源」按新（較低）成本重算等級，
+ *  升到不能再升，剩餘退還為對應精髓／結晶。回傳各研究的等級變化供結算視窗顯示。 */
+export function applyTrialReward(state: GameState): TrialResult {
+  // 已達試煉加成上限：不再給折扣／重算（避免成長暴走）。
+  if (state.progress.trialResearchLayers >= TRIAL_RESEARCH_LAYER_CAP) {
+    return { changes: [], refunded: false, capped: true };
+  }
+  state.progress.trialResearchLayers += 1;
+  const oldGrowth = researchStageGrowthFactor(state);
+  state.reincarnation.buffs.research += 1; // 套用研究折扣
+  const newGrowth = researchStageGrowthFactor(state);
+
+  const changes: TrialChange[] = [];
+  let refunded = false;
+
+  for (const stat of Object.keys(state.research.stages)) {
+    const from = state.research.stages[stat] ?? 0;
+    if (from <= 0) continue;
+    const spend = totalSpend(from, STAGE_BASE_COST, oldGrowth);
+    const { level, leftover } = relevel(spend, STAGE_BASE_COST, newGrowth);
+    state.research.stages[stat] = level;
+    if (leftover > 0) { state.essences[stat] = (state.essences[stat] ?? 0) + leftover; refunded = true; }
+    if (level !== from) changes.push({ label: affixLabel(stat as Affix["stat"]), from, to: level });
+  }
+  for (const slot of Object.keys(state.baseResearch) as BaseResearchSlot[]) {
+    const from = state.baseResearch[slot] ?? 0;
+    if (from <= 0) continue;
+    const spend = totalSpend(from, BASE_STAGE_BASE_COST, oldGrowth);
+    const { level, leftover } = relevel(spend, BASE_STAGE_BASE_COST, newGrowth);
+    state.baseResearch[slot] = level;
+    if (leftover > 0) { state.crystals[slot] = (state.crystals[slot] ?? 0) + leftover; refunded = true; }
+    if (level !== from) changes.push({ label: BASE_RESEARCH_LABEL[slot], from, to: level });
+  }
+  return { changes, refunded, capped: false };
+}
+
+/** 一次性修復暴走存檔：研究折扣層數壓回上限 5，並用「暴走當下各等級所需精髓量」在 5 層折扣下重算等級，
+ *  把被灌爆的研究等級（含攻速等）倒推修回。對未暴走（≤5 層）存檔為無害（僅夾住計數）。 */
+export function fixRunawayResearch(state: GameState): void {
+  state.progress.trialResearchLayers = Math.min(TRIAL_RESEARCH_LAYER_CAP, state.progress.trialResearchLayers ?? 0);
+  if (state.reincarnation.buffs.research <= TRIAL_RESEARCH_LAYER_CAP) return;
+
+  // 暴走（nerf 前）的「未夾」成長率：可能 < 1，用以反推當時各等級僅需的微量精髓
+  const oldGrowth = 2 * 0.8 ** state.reincarnation.buffs.research;
+  const affixSpend: Record<string, number> = {};
+  for (const stat of Object.keys(state.research.stages)) {
+    const level = state.research.stages[stat] ?? 0;
+    if (level > 0) affixSpend[stat] = totalSpend(level, STAGE_BASE_COST, oldGrowth);
+  }
+  const baseSpend: Partial<Record<BaseResearchSlot, number>> = {};
+  for (const slot of Object.keys(state.baseResearch) as BaseResearchSlot[]) {
+    const level = state.baseResearch[slot] ?? 0;
+    if (level > 0) baseSpend[slot] = totalSpend(level, BASE_STAGE_BASE_COST, oldGrowth);
+  }
+
+  state.reincarnation.buffs.research = TRIAL_RESEARCH_LAYER_CAP;
+  state.progress.trialResearchLayers = TRIAL_RESEARCH_LAYER_CAP;
+  const newGrowth = researchStageGrowthFactor(state);
+
+  for (const stat of Object.keys(affixSpend)) {
+    state.research.stages[stat] = relevel(affixSpend[stat], STAGE_BASE_COST, newGrowth).level;
+  }
+  for (const slot of Object.keys(baseSpend) as BaseResearchSlot[]) {
+    state.baseResearch[slot] = relevel(baseSpend[slot] ?? 0, BASE_STAGE_BASE_COST, newGrowth).level;
+  }
 }
