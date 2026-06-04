@@ -24,7 +24,7 @@ import { deriveStats, attackInterval } from "../game/hero.ts";
 import { currentEnemyDef, ENEMY_EVOLVE_RATE } from "../game/combat.ts";
 import {
   RUNE_DEFS, runeAttackSpeedMore, RUNE_STONES, RUNE_MAX_LEVEL, RUNE_STONE_COST, RUNE_SHARD,
-  runeLevel, runeLevelCost, activeRunes, maxActiveRunes,
+  runeLevel, runeLevelCost, activeRunes, maxActiveRunes, runeSummary, runeDrawback,
 } from "../game/runes.ts";
 import { getEquipmentComparisonRows, getWeaponPhysicalDps, findEquippedInEquipSlot, getItemSortValue, type ItemSortKey } from "../game/equipmentView.ts";
 import { affixLabel, isPctAffix } from "../game/affixMeta.ts";
@@ -882,7 +882,8 @@ export class UI {
     const heroAbils: Abil[] = [];
     for (const rune of activeRunes(state)) {
       const def = RUNE_DEFS[rune];
-      heroAbils.push({ key: `rune:${rune}`, icon: def.icon, name: def.name, effect: def.summary, sub: def.drawback });
+      const key = `rune:${rune}:${runeLevel(state, rune)}:${state.runes.selectedStone ?? ""}`;
+      heroAbils.push({ key, icon: def.icon, name: def.name, effect: runeSummary(state, rune), sub: runeDrawback(state, rune) });
     }
 
     const sig = `${heroAbils.map((a) => a.key).join(",")}|${enemyAbils.map((a) => a.key).join(",")}`;
@@ -1068,8 +1069,8 @@ export class UI {
           return `<div class="rune-cell active">
             <span class="rune-cell__icon">${r.icon}</span>
             <span class="rune-cell__name">${r.name} <span class="rune-lv">LV${runeLevel(state, id)}</span></span>
-            <span class="rune-cell__summary">${r.summary}</span>
-            <span class="rune-cell__drawback">${r.drawback}</span>
+            <span class="rune-cell__summary">${runeSummary(state, id)}</span>
+            <span class="rune-cell__drawback">${runeDrawback(state, id)}</span>
           </div>`;
         }).join("")
       : `<div class="rune-empty-note">未配置符文</div>`;
@@ -1100,8 +1101,8 @@ export class UI {
       return `<button class="rune-cell${on ? " active" : ""}" data-act="toggleRune" data-arg="${id}">
         <span class="rune-cell__icon">${r.icon}</span>
         <span class="rune-cell__name">${r.name} <span class="rune-lv">LV${runeLevel(state, id)}</span></span>
-        <span class="rune-cell__summary">${r.summary}</span>
-        <span class="rune-cell__drawback">${r.drawback}</span>
+        <span class="rune-cell__summary">${runeSummary(state, id)}</span>
+        <span class="rune-cell__drawback">${runeDrawback(state, id)}</span>
         <span class="rune-cell__state">${on ? "作用中" : "點擊配置"}</span>
       </button>`;
     }).join("");
@@ -1115,7 +1116,7 @@ export class UI {
           <span class="rune-cell__icon">${s.icon}</span>
           <span class="rune-cell__name">${s.name}</span>
           <span class="rune-cell__summary">${s.summary}</span>
-          <button class="mc-mini-btn rune-stone-buy" data-act="unlockStone" data-arg="${sid}"${shards >= RUNE_STONE_COST ? "" : " disabled"}>解鎖 ${shardIcon}${RUNE_STONE_COST}</button>
+          <button class="mc-mini-btn rune-stone-buy${shards >= RUNE_STONE_COST ? " ready" : ""}" data-act="unlockStone" data-arg="${sid}"${shards >= RUNE_STONE_COST ? "" : " disabled"}>解鎖 ${shardIcon}${RUNE_STONE_COST}</button>
         </div>`;
       }
       return `<button class="rune-cell rune-cell--stone${on ? " active" : ""}" data-act="selectStone" data-arg="${sid}">
@@ -1137,7 +1138,7 @@ export class UI {
         <span class="rune-up-row__lv">LV ${lv}/${RUNE_MAX_LEVEL}（效果 ${pct}%）</span>
         ${maxed
           ? `<span class="rune-up-row__max">已滿級</span>`
-          : `<button class="mc-mini-btn" data-act="upgradeRune" data-arg="${id}"${shards >= cost ? "" : " disabled"}>升級 ${shardIcon}${fmtNum(cost)}</button>`}
+          : `<button class="mc-mini-btn${shards >= cost ? " ready" : ""}" data-act="upgradeRune" data-arg="${id}"${shards >= cost ? "" : " disabled"}>升級 ${shardIcon}${fmtNum(cost)}</button>`}
       </div>`;
     }).join("");
 

@@ -10,46 +10,13 @@ import {
   researchStageGrowthFactor,
 } from "../src/game/reincarnation.ts";
 
+/** 最小狀態：只給 reincarnation 函式會讀的欄位（避免 import state/content 觸發 .csv）。 */
 function makeState(): GameState {
   return {
-    version: 1,
-    inventory: {},
-    machines: {},
-    equipmentInv: [],
-    warehouseInv: [],
-    filters: { weapon: [], armor: [], accessory: [], core: [] },
-    equipped: { weapon: null, armor: null, accessory: null },
-    combat: {
-      stageId: "s1",
-      waveIndex: 0,
-      enemyIndex: 0,
-      enemyHp: 0,
-      heroHp: 0,
-      heroAtkTimer: 0,
-      enemyAtkTimer: 0,
-    },
-    research: { points: {}, stages: {} },
-    baseResearch: { weapon: 0, armor: 0, accessory: 0 },
-    baseResearchPoints: { weapon: 0, armor: 0, accessory: 0 },
-    dismantler: { count: 0, active: 0, progress: 0, cores: [null, null] },
-    crafters: {
-      weapon: { count: 0, active: 0, progress: 0, productivity: 0, queue: 0, idle: false, cores: [null, null] },
-      armor: { count: 0, active: 0, progress: 0, productivity: 0, queue: 0, idle: false, cores: [null, null] },
-      accessory: { count: 0, active: 0, progress: 0, productivity: 0, queue: 0, idle: false, cores: [null, null] },
-    },
-    coreCrafter: { count: 0, active: 0, progress: 0, productivity: 0, queue: 0, idle: false, cores: [null, null] },
-    reincarnation: {
-      cycle: 1,
-      buffs: { research: 0, materials: 0, power: 0 },
-      victoryPending: false,
-      gameCleared: false,
-    },
-    progress: {
-      unlockedStageCount: 1,
-      coreUnlocked: false,
-    },
-    nextEquipId: 1,
-  };
+    reincarnation: { cycle: 1, buffs: { research: 0, materials: 0, power: 0 }, victoryPending: false, gameCleared: false },
+    runes: { owned: [], selected: [], levels: {}, unlockedStones: [], selectedStone: null },
+    progress: {},
+  } as unknown as GameState;
 }
 
 test("reincarnation keeps buffs and advances cycle", () => {
@@ -65,15 +32,16 @@ test("reincarnation keeps buffs and advances cycle", () => {
   assert.equal(next.reincarnation.victoryPending, false);
 });
 
-test("reincarnation multipliers stack multiplicatively", () => {
+test("reincarnation multipliers follow current formulas", () => {
   const state = makeState();
   state.reincarnation.buffs.research = 2;
   state.reincarnation.buffs.materials = 3;
   state.reincarnation.buffs.power = 4;
 
-  assert.ok(Math.abs(researchStageGrowthFactor(state) - 1.28) < 1e-12);
-  assert.ok(Math.abs(materialDropMultiplier(state) - 1.520875) < 1e-12);
-  assert.ok(Math.abs(powerMultiplier(state) - 1.4641) < 1e-12);
+  // 研究成長率 = max(1.1, 2^(0.8^N))
+  assert.ok(Math.abs(researchStageGrowthFactor(state) - Math.pow(2, Math.pow(0.8, 2))) < 1e-9);
+  assert.ok(Math.abs(materialDropMultiplier(state) - Math.pow(1.15, 3)) < 1e-9);
+  assert.ok(Math.abs(powerMultiplier(state) - Math.pow(1.1, 4)) < 1e-9);
 });
 
 test("machine costs jump with rounded 2.5x thresholds", () => {

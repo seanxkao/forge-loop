@@ -21,7 +21,8 @@ export interface RuneStoneDef {
   dual: boolean;
 }
 
-export const INITIAL_RUNES: RuneId[] = ["berserk_haste", "vital_regen"];
+// 狂戰符文改由「擊敗狼王」解鎖，開局只給再生符文。
+export const INITIAL_RUNES: RuneId[] = ["vital_regen"];
 
 /** 進化符文：英雄每層進化的基準比率（同進化使徒機制，數值較低；會再乘符文等級／符石倍率）。 */
 export const RUNE_EVOLVE_RATE = 0.10;
@@ -156,6 +157,30 @@ export function runeBlockReductionBonus(state: GameState): number {
 export function runeEvolveRate(state: GameState): number {
   if (!activeRunes(state).includes("evolve")) return 0;
   return RUNE_EVOLVE_RATE * runeEffectMult(state, "evolve");
+}
+
+function fmtPct(v: number): string {
+  return `${Math.round(v * 1000) / 10}%`.replace(".0%", "%");
+}
+
+/** 依當前等級＋符石的動態符文效果敘述。 */
+export function runeSummary(state: GameState, id: RuneId): string {
+  const m = runeEffectMult(state, id);
+  switch (id) {
+    case "berserk_haste": return `每失去 25 生命，獲得 ${fmtPct(BERSERK_SPEED_PER_25 * m)} 更多攻速`;
+    case "vital_regen": return `每秒回復 ${fmtPct(VITAL_REGEN_PCT * m)} 最大生命`;
+    case "evolve": return `戰鬥中每 5 秒輪流 +${fmtPct(RUNE_EVOLVE_RATE * m)} 攻擊／防禦／攻速（累加）`;
+  }
+}
+
+/** 依當前符石的動態副作用敘述。 */
+export function runeDrawback(state: GameState, id: RuneId): string {
+  const db = runeDrawbackMult(state);
+  switch (id) {
+    case "berserk_haste": return `副作用：秒回 -${fmtPct(0.5 * db)}`;
+    case "vital_regen": return `副作用：格擋額外減傷 -${fmtPct(0.5 * db)}`;
+    case "evolve": return "死亡或換關時層數歸零";
+  }
 }
 
 /** 花符文碎片升一級該符文（< 上限且碎片足夠才成功）。 */

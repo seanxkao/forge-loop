@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Forge Loop 傷害計算器</title>
+    <style>
+      :root { color-scheme: dark; }
+      body {
+        margin: 0; padding: 16px; background: #15131f; color: #e8e4f4;
+        font-family: system-ui, "Microsoft JhengHei", sans-serif; font-size: 14px; line-height: 1.5;
+      }
+      h1 { font-size: 18px; margin: 0 0 4px; }
+      h2 { font-size: 14px; margin: 14px 0 6px; color: #b7afd6; border-bottom: 1px solid #322c47; padding-bottom: 4px; }
+      .note { color: #8a83a8; font-size: 12px; margin: 0 0 12px; }
+      .calc-wrap { display: grid; grid-template-columns: 1fr 1fr 360px; gap: 18px; align-items: start; max-width: 1200px; }
+      .panel { background: #1d1a2b; border: 1px solid #322c47; border-radius: 10px; padding: 12px 14px; }
+      .row { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
+      .row label { flex: 0 0 92px; color: #b7afd6; font-size: 13px; }
+      input, select { background: #15131f; color: #e8e4f4; border: 1px solid #4a4368; border-radius: 6px; padding: 4px 6px; font-size: 13px; }
+      input[type="number"] { width: 86px; }
+      select { min-width: 0; }
+      .aff-row { display: grid; grid-template-columns: 1fr 64px; gap: 6px; margin: 3px 0; }
+      .aff-row select { width: 100%; }
+      .res-block { margin-bottom: 14px; }
+      .res-line { display: flex; justify-content: space-between; gap: 12px; padding: 2px 0; }
+      .res-line b { color: #ffd23f; }
+      .big { font-size: 16px; }
+      .good { color: #7CFC9B; }
+      .bad { color: #ff6b6b; }
+      .sub { color: #8a83a8; font-size: 12px; }
+      .verdict { font-size: 52px; font-weight: 900; text-align: center; margin-top: 14px; line-height: 1.1; }
+      .verdict.win { color: #7CFC9B; text-shadow: 0 0 18px rgba(124, 252, 155, 0.4); }
+      .verdict.lose { color: #ff6b6b; text-shadow: 0 0 18px rgba(255, 107, 107, 0.4); }
+      .verdict-sub { text-align: center; color: #8a83a8; font-size: 12px; }
+    </style>
+  </head>
+  <body>
+    <h1>⚒️ Forge Loop 傷害計算器</h1>
+    <p class="note">使用遊戲現行公式（<code>deriveStats</code> 與 <code>combat.ts</code> 的 <code>resolveHeroDamage</code>／<code>resolveEnemyDamage</code>），不複製公式。裝備視為稀有（吃詞綴研究）；不含變異詞與進化符文的戰中疊加。</p>
+    <div id="calc"></div>
+    <script type="module" src="/src/calc.ts"></script>
+  </body>
+</html>

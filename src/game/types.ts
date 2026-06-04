@@ -81,6 +81,11 @@ export interface EnemyDef {
   evolve?: boolean;
   /** 力量的使徒：開場與每 5 秒刷新成滿盾的盾量（如 32000）；盾未破時攻擊、破盾後停手到刷新。 */
   shield?: number;
+  /** 失血狂暴：每失去 enrageHpStep 生命，攻速 +enrageSpeedPct（類狂戰）。需兩欄都設。 */
+  enrageHpStep?: number;
+  enrageSpeedPct?: number;
+  /** 擊敗此敵人時解鎖的符文（加入 runes.owned）。 */
+  unlocksRune?: RuneId;
 }
 
 export interface StageDef {

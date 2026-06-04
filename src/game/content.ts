@@ -159,7 +159,7 @@ const E_DEF = [
 const Z_INTERVAL = [1.4, 1.3, 1.25, 1.2, 1.15];
 const BOSS_HP = [468, 2912, 4160, 22464, 49200];
 const BOSS_ATK = [13, 21.6, 83, 220, 180];
-const BOSS_INTERVAL = [1.4, 0.65, 1.25, 1.8, 0.95];
+const BOSS_INTERVAL = [1.4, 1.3, 1.25, 1.8, 0.95]; // 狼王(z1)攻速減半：0.65→1.3，改靠失血狂暴提速
 
 function buildDrops(stageIndex: number, isBoss: boolean): DropDef[] {
   const base = Math.max(1, Math.round(1.6 ** stageIndex));
@@ -209,6 +209,12 @@ function buildStages(): StageDef[] {
         atkInterval: BOSS_INTERVAL[z],
         drops: buildDrops(i, true),
       };
+      // 狼王（z1）：失血狂暴（每失去 250 生命 +8% 攻速）＋ 擊敗解鎖狂戰符文
+      if (z === 1) {
+        boss.enrageHpStep = 250;
+        boss.enrageSpeedPct = 0.08;
+        boss.unlocksRune = "berserk_haste";
+      }
       waves = makeWaves(4, normal, 1);
       waves.push([boss]);
     } else {

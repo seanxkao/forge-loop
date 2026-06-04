@@ -11,9 +11,19 @@ import { applyTrialReward, type TrialResult } from "./research.ts";
 import { mutationCombatEffects } from "./mutation.ts";
 import { activeMachineCountByRecipe } from "./production.ts";
 
-function effectiveDefense(defense: number, penPct: number): number {
+export function effectiveDefense(defense: number, penPct: number): number {
   const pen = Math.max(0, Math.min(1, penPct));
   return defense * (1 - pen);
+}
+
+/** 英雄單次命中對敵人的傷害（atk 為已套用暴擊／進化等倍率後的攻擊值）。唯一傷害公式來源，計算器共用。 */
+export function resolveHeroDamage(atk: number, enemyDef: number, enemyDefPenByHero: number): number {
+  return Math.max(1, Math.round(atk - effectiveDefense(enemyDef, enemyDefPenByHero)));
+}
+
+/** 敵人單次命中對英雄的傷害（reduction 為減傷＋格擋的合計、上限 0.95）。唯一傷害公式來源，計算器共用。 */
+export function resolveEnemyDamage(enemyAtk: number, reduction: number, heroDef: number, enemyDefPen: number): number {
+  return Math.max(1, Math.round(enemyAtk * (1 - reduction) - effectiveDefense(heroDef, enemyDefPen)));
 }
 
 function rollHeroAttack(stats: GameState["combat"] extends never ? never : { atkMin: number; atkMax: number }): number {
@@ -320,7 +330,7 @@ export function tickCombat(state: GameState, dt: number, fx: CombatFx): void {
     atk *= 1 + createDamageMachines * CREATE_DAMAGE_MORE_PER_MACHINE;
     if (isCreateBoss && c.createMode === 1) atk *= 1 - CREATE_ATTACK_MODE_DAMAGE_REDUCTION;
     if (crit) atk *= stats.critMult;
-    const dmg = Math.max(1, Math.round(atk - effectiveDefense(eff.def, stats.defPenPct)));
+    const dmg = resolveHeroDamage(atk, eff.def, stats.defPenPct);
     fx.onHeroAttack?.(dmg, crit);
     if (crit && mut.critHealPct > 0) c.heroHp = Math.min(stats.hp, c.heroHp + stats.hp * mut.critHealPct);
     // 力量的使徒護盾：盾未破時傷害打在盾上、不傷本體；打破即停手
@@ -342,7 +352,8 @@ export function tickCombat(state: GameState, dt: number, fx: CombatFx): void {
     if (!killed && mut.doubleStrikeChance > 0 && Math.random() < mut.doubleStrikeChance) killed = heroHit();
     if (killed) {
       rollDrops(state, enemy, fx);
-      if (enemy.evolve) state.progress.apostleWins = (state.progress.apostleWins ?? 0) + 1; // ???脣??蝙敺?
+      if (enemy.evolve) state.progress.apostleWins = (state.progress.apostleWins ?? 0) + 1;
+      if (enemy.unlocksRune && !state.runes.owned.includes(enemy.unlocksRune)) state.runes.owned.push(enemy.unlocksRune); // ???脣??蝙敺?
       fx.onEnemyKilled?.(enemy.name);
       advance(state, fx);
       return;
@@ -354,15 +365,18 @@ export function tickCombat(state: GameState, dt: number, fx: CombatFx): void {
     c.enemyAtkTimer = 0;
     return;
   }
-  const enemyAtkInterval = isCreateBoss && c.createMode === 1 ? eff.atkInterval / CREATE_ATTACK_SPEED_MULT : eff.atkInterval;
+  let enemyAtkInterval = isCreateBoss && c.createMode === 1 ? eff.atkInterval / CREATE_ATTACK_SPEED_MULT : eff.atkInterval;
+  // 失血狂暴（狼王）：每失去 enrageHpStep 生命，攻速 +enrageSpeedPct（間隔縮短）
+  if (enemy.enrageHpStep && enemy.enrageSpeedPct) {
+    const stacks = Math.floor(Math.max(0, enemy.maxHp - c.enemyHp) / enemy.enrageHpStep);
+    enemyAtkInterval /= 1 + stacks * enemy.enrageSpeedPct;
+  }
   c.enemyAtkTimer += dt;
   while (c.enemyAtkTimer >= enemyAtkInterval && c.heroHp > 0) {
     c.enemyAtkTimer -= enemyAtkInterval;
     const blocked = stats.blockChance > 0 && Math.random() < stats.blockChance;
     const reduction = Math.min(0.95, stats.dmgReductionPct + (blocked ? runeBlockReductionBonus(state) : 0));
-    let base = eff.atk * (1 - reduction);
-    base -= effectiveDefense(heroDef, enemy.defPenPct);
-    const edmg = Math.max(1, Math.round(base));
+    const edmg = resolveEnemyDamage(eff.atk, reduction, heroDef, enemy.defPenPct);
     c.heroHp -= edmg;
     fx.onEnemyAttack?.(edmg, blocked);
     if (c.heroHp <= 0) {

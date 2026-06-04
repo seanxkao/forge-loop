@@ -8,58 +8,18 @@ import {
 } from "../src/game/equipmentView.ts";
 import type { Equipment, GameState } from "../src/game/types.ts";
 
+/** 最小狀態：只給 equipment-view 函式會讀的研究欄位（避免 import content.ts 觸發 .csv）。 */
 function makeState(): GameState {
   return {
-    version: 1,
-    inventory: {},
-    machines: {
-      furnace: { count: 1, active: 1, progress: 0, productivity: 0, idle: false, cores: [null, null] },
-      tannery: { count: 1, active: 1, progress: 0, productivity: 0, idle: false, cores: [null, null] },
-      crystallizer: { count: 1, active: 1, progress: 0, productivity: 0, idle: false, cores: [null, null] },
-    },
-    equipmentInv: [],
-    warehouseInv: [],
-    filters: { weapon: [], armor: [], accessory: [], core: [] },
-    equipped: { weapon: null, armor: null, accessory: [null, null] },
-    combat: {
-      stageId: "s1",
-      waveIndex: 0,
-      enemyIndex: 0,
-      enemyHp: 0,
-      heroHp: 0,
-      heroAtkTimer: 0,
-      enemyAtkTimer: 0,
-      clearPause: 0,
-      pendingStageId: null,
-    },
     research: { points: {}, stages: {} },
     baseResearch: { weapon: 0, armor: 0, accessory: 0, core: 0 },
-    baseResearchPoints: { weapon: 0, armor: 0, accessory: 0, core: 0 },
-    dismantler: { count: 1, active: 1, progress: 0, cores: [null, null] },
-    crafters: {
-      weapon: { count: 1, active: 1, progress: 0, productivity: 0, queue: 0, idle: false, cores: [null, null] },
-      armor: { count: 1, active: 1, progress: 0, productivity: 0, queue: 0, idle: false, cores: [null, null] },
-      accessory: { count: 1, active: 1, progress: 0, productivity: 0, queue: 0, idle: false, cores: [null, null] },
-    },
-    coreCrafter: { count: 1, active: 1, progress: 0, productivity: 0, queue: 0, idle: false, cores: [null, null] },
-    reincarnation: {
-      cycle: 1,
-      buffs: { research: 0, materials: 0, power: 0 },
-      victoryPending: false,
-      gameCleared: false,
-    },
-    progress: {
-      unlockedStageCount: 1,
-      coreUnlocked: false,
-      autoAdvanceNext: false,
-    },
-    nextEquipId: 1,
-  };
+  } as unknown as GameState;
 }
 
+/** 測試武器：基底攻擊 10/10，可選 flatAtk（atk 詞，min=max）／物傷%／暴擊率。稀有度＝rare（吃詞綴研究）。 */
 function makeWeapon(uid: number, flatAtk: number, localPhysPct = 0, critChance = 0): Equipment {
   const affixes: Equipment["affixes"] = [];
-  if (flatAtk !== 0) affixes.push({ stat: "atk", value: flatAtk, label: "攻擊", tier: 3, tags: ["physical"] });
+  if (flatAtk !== 0) affixes.push({ stat: "atk", value: flatAtk, valueMax: flatAtk, label: "攻擊", tier: 3, tags: ["physical"] });
   if (localPhysPct !== 0) affixes.push({ stat: "localPhysPct", value: localPhysPct, label: "武器物傷%", pct: true, tier: 3, tags: ["physical"] });
   if (critChance !== 0) affixes.push({ stat: "critChance", value: critChance, label: "暴擊率", pct: true, tier: 3, tags: ["crit"] });
   return {
@@ -68,9 +28,10 @@ function makeWeapon(uid: number, flatAtk: number, localPhysPct = 0, critChance =
     name: "測試武器",
     icon: "S",
     kind: "equipment",
-    rarity: "normal",
+    rarity: "rare",
+    locked: false,
     slot: "weapon",
-    base: { atk: 10 },
+    base: { atkMin: 10, atkMax: 10 },
     affixes,
   };
 }
@@ -85,9 +46,11 @@ test("weapon summary starts with computed physical damage after research bonuses
   const damage = getWeaponPhysicalDamage(state, weapon);
   const rows = getEquipmentSummaryRows(state, weapon);
 
-  assert.equal(damage, 37.2);
+  // 基底 10×1.2(基底研究) + atk詞 10×1.2(詞綴研究) = 24；×(1+物傷0.5×1.1) = 24×1.55 = 37.2
+  assert.ok(Math.abs(damage.min - 37.2) < 1e-9);
+  assert.ok(Math.abs(damage.max - 37.2) < 1e-9);
   assert.equal(rows[0]?.key, "physicalDamage");
-  assert.equal(rows[0]?.value, 37.2);
+  assert.ok(Math.abs((rows[0]?.value ?? 0) - 37.2) < 1e-9);
 });
 
 test("comparison rows include gains and losses against equipped item", () => {
