@@ -37,8 +37,9 @@ export const MATERIALS: Record<string, MaterialDef> = {
   ingot: { id: "ingot", name: "鐵錠", kind: "intermediate", icon: "🧱" },
   crystal: { id: "crystal", name: "結晶", kind: "intermediate", icon: "💎" },
   mutagen: { id: "mutagen", name: "突變原", kind: "intermediate", icon: "🧫" },
+  runeShard: { id: "runeShard", name: "符文碎片", kind: "intermediate", icon: "🔮" },
   living_gold: { id: "living_gold", name: "生金", kind: "intermediate", icon: "🪙" },
-  biosteel: { id: "biosteel", name: "生物鋼", kind: "intermediate", icon: "🧬" },
+  biosteel: { id: "biosteel", name: "生物鋼", kind: "intermediate", icon: "🧊" },
   stable_biosteel: { id: "stable_biosteel", name: "穩定生物鋼", kind: "intermediate", icon: "⚙️" },
 };
 
@@ -113,25 +114,25 @@ export const PROD_RECIPES: Record<RecipeId, ProdRecipeDef> = {
   armor: { id: "armor", name: "防具", icon: RECIPES.armor.icon, kind: "equipment", slot: "armor", input: RECIPES.armor.cost, cycleTime: 4, unlock: "start" },
   accessory: { id: "accessory", name: "飾品", icon: RECIPES.accessory.icon, kind: "equipment", slot: "accessory", input: RECIPES.accessory.cost, cycleTime: 4, unlock: "zone1" },
   core: { id: "core", name: "核心", icon: CORE_RECIPE.icon, kind: "core", input: CORE_RECIPE.cost, cycleTime: 8, unlock: "core" },
-  assembler: { id: "assembler", name: "組裝機", icon: "🏭", kind: "assembler", input: ASSEMBLER_COST, cycleTime: 3, unlock: "start" },
-  lab: { id: "lab", name: "研究室", icon: "🧪", kind: "lab", input: LAB_COST, cycleTime: 3, unlock: "start" },
+  assembler: { id: "assembler", name: "組裝機", icon: "🛠️", kind: "assembler", input: ASSEMBLER_COST, cycleTime: 3, unlock: "start" },
+  lab: { id: "lab", name: "研究室", icon: "🔬", kind: "lab", input: LAB_COST, cycleTime: 3, unlock: "start" },
   dismantler: { id: "dismantler", name: "拆解機", icon: "🪓", kind: "dismantler", input: LAB_COST, cycleTime: 3, unlock: "start" },
 };
 
 const RAWS = ["ore", "shard"] as const;
 const ZONE = [
-  { area: "荒野", enemy: "狼", icon: "🐺", boss: "荒野王" },
-  { area: "洞窟", enemy: "石獸", icon: "🪨", boss: "狼王" },
-  { area: "晶林", enemy: "晶獸", icon: "🦎", boss: "晶核王" },
-  { area: "金域", enemy: "黃金獸", icon: "👑", boss: "黃金王" },
-  { area: "終境", enemy: "改造獸", icon: "🧬", boss: "使徒" },
+  { area: "礦坑帶", enemy: "史萊姆", icon: "🟢", boss: "史萊姆王" },
+  { area: "荒野帶", enemy: "野狼", icon: "🐺", boss: "狼王" },
+  { area: "晶洞帶", enemy: "晶化魔像", icon: "🗿", boss: "魔像核心" },
+  { area: "鐵域帶", enemy: "鋼鐵魔偶", icon: "🤖", boss: "鋼鐵霸主" },
+  { area: "虛空帶", enemy: "虛空獸", icon: "👾", boss: "虛空之王" },
 ] as const;
 const STAGE_NAMES = [
-  "荒野外圍", "破裂巢穴", "灰岩坡地", "荒野王座",
-  "洞窟入口", "碎柱長廊", "回音深坑", "狼王巢心",
-  "晶林外層", "折光坡", "共鳴樹海", "晶核庭院",
-  "金域前線", "鎏金階道", "王座走廊", "黃金王庭",
-  "終境邊界", "焚燼道路", "改造熔場", "使徒前庭",
+  "廢棄礦坑", "坍方坑道", "銅脈深處", "礦坑核心",
+  "枯狼林", "野獸平原", "巨獸棲地", "荒野盡頭",
+  "碎晶洞", "微晶迴廊", "晶簇深淵", "共鳴晶核",
+  "廢鐵堡", "熔鐵工廠", "鋼鐵巢穴", "鐵王座",
+  "虛空裂隙", "崩界回廊", "虛晶聖所", "虛空之心",
 ] as const;
 
 const E_HP = [
@@ -199,7 +200,7 @@ function buildStages(): StageDef[] {
     let waves: EnemyDef[][];
     if (isBoss) {
       const boss: EnemyDef = {
-        name: `王 ${ZONE[z].boss}`,
+        name: `💀 ${ZONE[z].boss}`,
         icon: ZONE[z].icon,
         maxHp: BOSS_HP[z],
         atk: BOSS_ATK[z],
@@ -281,6 +282,28 @@ const CREATE_HOMUNCULUS: EnemyDef = {
   defPenPct: 0, atkInterval: 1.1, drops: [],
 };
 
+export const POWER_TRIAL_ID = "trial-power";
+// 力量試煉：正面對決。怪掉符文碎片；吞噬者無視防禦逼快殺；力量的使徒每 5 秒刷新滿盾、破盾後停手。
+const POWER_MOB: EnemyDef = {
+  name: "狂信徒", icon: "⚔️",
+  maxHp: 40000, atk: 900, def: 0,
+  defPenPct: 0, atkInterval: 0.8,
+  drops: [{ material: "runeShard", min: 50, max: 75, chance: 1, noMultiplier: true }],
+};
+const POWER_DEVOURER: EnemyDef = {
+  name: "吞噬者", icon: "👹",
+  maxHp: 80000, atk: 900, def: 0,
+  defPenPct: 1.0, atkInterval: 0.8,
+  drops: [{ material: "runeShard", min: 200, max: 300, chance: 1, noMultiplier: true }],
+};
+const POWER_APOSTLE: EnemyDef = {
+  name: "力量的使徒", icon: "🛡️",
+  maxHp: 160000, atk: 900, def: 0,
+  defPenPct: 0, atkInterval: 1.0,
+  drops: [{ material: "runeShard", min: 1000, max: 1500, chance: 1, noMultiplier: true }],
+  shield: 32000,
+};
+
 function trialWaves(mob: EnemyDef, mid: EnemyDef, boss: EnemyDef): EnemyDef[][] {
   const waves: EnemyDef[][] = [];
   for (let i = 0; i < 10; i += 1) {
@@ -295,28 +318,36 @@ export const TRIALS: StageDef[] = [
   {
     id: "trial-evolve",
     name: "進化的試煉",
-    desc: "短時間內打穿不斷進化的敵人，並收集突變原。",
+    desc: "快速擊敗不斷進化的敵人。",
     trial: true,
-    intro: "【進化的試煉】\n· 十波改造獸，數值比照最終區。\n· 第 5 波：黃金王，每秒回血、會拖延時間。\n· 第 10 波：進化的使徒，每 5 秒輪流提升 20% 攻擊／防禦／攻速（持續累加），拖太久會打不贏。\n· 黃金王掉 1、進化的使徒掉 2 突變原；通關解鎖進化符文。\n· 每擊敗一次進化的使徒，提升裝備變異次數上限。",
+    intro: "【進化的試煉】\n· 怪物會隨時間不斷增強。\n· 初次通關獎勵：\n· 「變異系統」能隨機調整裝備詞綴。\n· 「進化符文」每五秒獲得強化\n· 反覆通關獎勵：提升最大變異次數，最多五次",
     waves: trialWaves(TRIAL_MOB, TRIAL_GOLD_KING, TRIAL_APOSTLE),
   },
   {
     id: CREATE_TRIAL_ID,
-    name: "創造試煉",
-    desc: "戰內掉生金，靠巨大組裝機群即時轉成生物鋼，撐過尾王三模式後把殘餘資源帶出。",
+    name: "創造的試煉",
+    desc: "在戰鬥中及時生產資源以應付強大敵人。",
     trial: true,
-    intro: "【創造試煉】\n· 小怪掉 500000 生金，中頭目掉 4000000，受素材掉落加成影響。\n· 1 生金可煉成 1 生物鋼；請用極大量組裝機即時消化。\n· 生鋼補血：每秒每台消耗 1 生物鋼；每 1000 台運轉中機器每秒回復 1% 最大生命。\n· 生鋼增傷：每秒每台消耗 1 生物鋼；每 1000 台運轉中機器提供 1% 更多傷害，且只在運轉期間生效。\n· 尾王依序進入：防禦 5 秒無敵、攻擊 10 秒攻速 2 倍且有 99% 減傷、再生 10 秒高速回血。\n· 通關後，剩餘生物鋼的 10% 會轉成可帶出的穩定生物鋼；失敗或離場則清空。",
+    intro: "【創造的試煉】\n· 此區域怪物將掉落關卡內限定資源「生金」。\n· 請查看組裝機中的三種新配方以了解如何在關卡中用生金強化自己。\n· 勝利時可把剩餘生物鋼的 10% 轉成「穩定生物鋼」帶出關卡，其餘清空。",
     waves: trialWaves(CREATE_MOB, CREATE_FORGE, CREATE_HOMUNCULUS),
   },
   {
     id: "trial-memory",
-    name: "記憶試煉",
-    desc: "研究失效的長線對拚，通關可降低研究門檻。",
+    name: "記憶的試煉",
+    desc: "在研究無效的情況下擊敗敵人。",
     trial: true,
     researchMult: 0,
     clearReward: "reincResearch",
-    intro: "【記憶試煉】\n· 關卡效果「忘卻」：此關研究加成全數歸零。\n· 復甦戰士成群來襲，數值比照最終區。\n· 中段：無名，攻勢凌厲。\n· 尾王：記憶的使徒——無特殊技能，純數值對拚，鼓勵穩紮穩打。\n· 通關獲得一層「追憶」：永久降低研究門檻、強化研究效果。",
+    intro: "【記憶的試煉】\n· 關卡效果：「忘卻」本關卡中研究加成無效。\n· 通關獎勵：「追憶」永久降低研究門檻。",
     waves: trialWaves(MEMORY_MOB, MEMORY_NAMELESS, MEMORY_APOSTLE),
+  },
+  {
+    id: POWER_TRIAL_ID,
+    name: "力量的試煉",
+    desc: "正面對決，靠你累積的強化硬剛。",
+    trial: true,
+    intro: "【力量的試煉】\n· 正面對決，靠前面試煉的強化擊敗強敵。\n· 怪物掉落「符文碎片」。\n· 吞噬者攻擊無視防禦，務必速殺。\n· 力量的使徒每 5 秒展開護盾，打破後它會停手，直到護盾恢復。\n· 首次挑戰（不論成敗）解鎖右側「符文」分頁，可用符文碎片強化符文。",
+    waves: trialWaves(POWER_MOB, POWER_DEVOURER, POWER_APOSTLE),
   },
 ];
 

@@ -1,9 +1,9 @@
 ﻿import type { GameState, EnemyDef, StageDef } from "./types.ts";
-import { STAGES, findStage, CREATE_TRIAL_ID } from "./content.ts";
+import { STAGES, findStage, CREATE_TRIAL_ID, POWER_TRIAL_ID } from "./content.ts";
 import { deriveStats, attackInterval } from "./hero.ts";
 import { add } from "./inventory.ts";
 import { materialDropMultiplier } from "./reincarnation.ts";
-import { runeBlockReductionBonus, RUNE_EVOLVE_RATE } from "./runes.ts";
+import { runeBlockReductionBonus, activeRunes, runeEvolveRate } from "./runes.ts";
 import { coerceUnlockedStageId, unlockAfterStageClear } from "./unlocks.ts";
 import { grantLegendaryCoreReward } from "./legendaryCores.ts";
 import { applyPendingLoadout } from "./loadout.ts";
@@ -114,6 +114,7 @@ export function startStage(state: GameState, stageId: string): void {
   if (inCreateTrial(state) && stageId !== CREATE_TRIAL_ID) clearCreateTrialMaterials(state);
   c.stageId = coerceUnlockedStageId(state, stageId);
   if (c.stageId === CREATE_TRIAL_ID) clearCreateTrialMaterials(state);
+  if (c.stageId === POWER_TRIAL_ID) state.progress.runeTabUnlocked = true; // 首次挑戰即解鎖符文分頁
   c.researchMult = getStage(c.stageId).researchMult ?? 1;
   c.waveIndex = 0;
   c.enemyIndex = 0;
@@ -131,12 +132,17 @@ export function startStage(state: GameState, stageId: string): void {
 }
 
 function spawnCurrent(state: GameState): void {
-  state.combat.enemyHp = currentEnemyDef(state).maxHp;
+  const enemy = currentEnemyDef(state);
+  state.combat.enemyHp = enemy.maxHp;
   state.combat.enemyAtkTimer = 0;
   resetEvolve(state.combat);
   state.combat.createModeTimer = 0;
   state.combat.createMode = 0;
   state.combat.createModeAnnounced = false;
+  // 力量的使徒護盾：出場即帶滿盾
+  state.combat.shieldHp = enemy.shield ?? 0;
+  state.combat.shieldTimer = 0;
+  state.combat.shieldBroken = false;
 }
 
 function advance(state: GameState, fx: CombatFx): void {
@@ -284,7 +290,16 @@ export function tickCombat(state: GameState, dt: number, fx: CombatFx): void {
   const eff = effectiveEnemy(c, enemy);
 
   // ?脣?蝚行?嚗?? 5 蝘憚瘚?+5% ?? ?餅??蝳色??駁?蝝臬?嚗楊瘜Ｖ???
-  if (state.runes.selected === "evolve") {
+  if (enemy.shield) {
+    c.shieldTimer += dt;
+    while (c.shieldTimer >= 5) {
+      c.shieldTimer -= 5;
+      c.shieldHp = enemy.shield;
+      c.shieldBroken = false;
+    }
+  }
+  const heroEvoRate = runeEvolveRate(state);
+  if (activeRunes(state).includes("evolve")) {
     c.heroEvolveTimer += dt;
     while (c.heroEvolveTimer >= 5) {
       c.heroEvolveTimer -= 5;
@@ -295,25 +310,31 @@ export function tickCombat(state: GameState, dt: number, fx: CombatFx): void {
     }
   }
   // ?芷?脣?蝚行??惜?豢???0嚗???evolveFactor ?? 1嚗??⊥?隞嗅??典??
-  const heroDef = stats.def * evolveFactor(c.heroEvolveDef, RUNE_EVOLVE_RATE);
+  const heroDef = stats.def * evolveFactor(c.heroEvolveDef, heroEvoRate);
 
   // 銝甈∟???蝯??瑕拿嚗??銵嚗??單?行?畾箝?
   const heroHit = (): boolean => {
     if (isCreateBoss && c.createMode === 0) return false;
     const crit = Math.random() < stats.critChance;
-    let atk = rollHeroAttack(stats) * evolveFactor(c.heroEvolveAtk, RUNE_EVOLVE_RATE);
+    let atk = rollHeroAttack(stats) * evolveFactor(c.heroEvolveAtk, heroEvoRate);
     atk *= 1 + createDamageMachines * CREATE_DAMAGE_MORE_PER_MACHINE;
     if (isCreateBoss && c.createMode === 1) atk *= 1 - CREATE_ATTACK_MODE_DAMAGE_REDUCTION;
     if (crit) atk *= stats.critMult;
     const dmg = Math.max(1, Math.round(atk - effectiveDefense(eff.def, stats.defPenPct)));
-    c.enemyHp -= dmg;
     fx.onHeroAttack?.(dmg, crit);
     if (crit && mut.critHealPct > 0) c.heroHp = Math.min(stats.hp, c.heroHp + stats.hp * mut.critHealPct);
+    // 力量的使徒護盾：盾未破時傷害打在盾上、不傷本體；打破即停手
+    if (enemy.shield && c.shieldHp > 0) {
+      c.shieldHp -= dmg;
+      if (c.shieldHp <= 0) { c.shieldHp = 0; c.shieldBroken = true; }
+      return false;
+    }
+    c.enemyHp -= dmg;
     return c.enemyHp <= 0;
   };
 
   c.heroAtkTimer += dt;
-  const interval = attackInterval(state, stats) / evolveFactor(c.heroEvolveSpd, RUNE_EVOLVE_RATE);
+  const interval = attackInterval(state, stats) / evolveFactor(c.heroEvolveSpd, heroEvoRate);
   while (c.heroAtkTimer >= interval && c.enemyHp > 0) {
     c.heroAtkTimer -= interval;
     let killed = heroHit();
@@ -328,6 +349,11 @@ export function tickCombat(state: GameState, dt: number, fx: CombatFx): void {
     }
   }
 
+  // 力量的使徒：破盾期間停止攻擊（並歸零計時，避免恢復後爆發）
+  if (enemy.shield && c.shieldBroken) {
+    c.enemyAtkTimer = 0;
+    return;
+  }
   const enemyAtkInterval = isCreateBoss && c.createMode === 1 ? eff.atkInterval / CREATE_ATTACK_SPEED_MULT : eff.atkInterval;
   c.enemyAtkTimer += dt;
   while (c.enemyAtkTimer >= enemyAtkInterval && c.heroHp > 0) {

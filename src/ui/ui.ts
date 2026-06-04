@@ -16,12 +16,16 @@ import type {
   ItemRarity,
   EquipSlotId,
   RuneId,
+  RuneStoneId,
 } from "../game/types.ts";
 import { MATERIALS, STAGES, TRIALS, RECIPES, CORE_RECIPE, PROD_RECIPES, findStage } from "../game/content.ts";
 import type { ProdRecipeDef } from "../game/content.ts";
 import { deriveStats, attackInterval } from "../game/hero.ts";
 import { currentEnemyDef, ENEMY_EVOLVE_RATE } from "../game/combat.ts";
-import { RUNE_DEFS, runeAttackSpeedMore } from "../game/runes.ts";
+import {
+  RUNE_DEFS, runeAttackSpeedMore, RUNE_STONES, RUNE_MAX_LEVEL, RUNE_STONE_COST, RUNE_SHARD,
+  runeLevel, runeLevelCost, activeRunes, maxActiveRunes,
+} from "../game/runes.ts";
 import { getEquipmentComparisonRows, getWeaponPhysicalDps, findEquippedInEquipSlot, getItemSortValue, type ItemSortKey } from "../game/equipmentView.ts";
 import { affixLabel, isPctAffix } from "../game/affixMeta.ts";
 import { materialDropMultiplier, powerMultiplier, researchStageGrowthFactor } from "../game/reincarnation.ts";
@@ -80,8 +84,10 @@ export interface UICallbacks {
   onSocketCore(target: CoreTarget, uid: number, fromWarehouse: boolean): void;
   onUnsocketCore(target: CoreTarget): void;
   onResearchBase(slot: BaseResearchSlot): void;
-  onSelectRune(id: RuneId): void;
-  onClearRune(): void;
+  onToggleRune(id: RuneId): void;
+  onSelectStone(id: RuneStoneId): void;
+  onUpgradeRune(id: RuneId): void;
+  onUnlockStone(id: RuneStoneId): void;
   onVictoryContinue(): void;
   onReincarnate(buff: ReincarnationBuff): void;
   onReset(): void;
@@ -166,6 +172,7 @@ export class UI {
     inventory: HTMLElement;
     craft: HTMLElement;
     research: HTMLElement;
+    runeTab: HTMLElement;
     reincarnation: HTMLElement;
   };
 
@@ -221,6 +228,7 @@ export class UI {
           <button class="tab-btn" data-act="tab" data-arg="bag">🎒 背包</button>
           <button class="tab-btn" data-act="tab" data-arg="craft">🔨 工藝</button>
           <button class="tab-btn" data-act="tab" data-arg="research">🔬 研究</button>
+          <button class="tab-btn" data-act="tab" data-arg="rune" data-rune-tab hidden>🔮 符文</button>
           <button class="tab-btn" data-act="tab" data-arg="reincarnation" data-reinc-tab hidden>♾️ 輪迴</button>
           <button class="btn-settings" data-act="openSettings">設定</button>
         </div>
@@ -260,6 +268,11 @@ export class UI {
             <h2>研究</h2>
             <p class="hint">拆解機自動拆倉庫裝備產出精髓／結晶；在此消耗它們瞬間升研究階。詞綴研究每階永久 +10%，基底研究每階永久 +20%。</p>
             <div class="research" data-zone="research"></div>
+          </section>
+          <section class="panel-section" data-panel="rune">
+            <h2>符文</h2>
+            <p class="hint">配置作用符文（雙生符石可同時 2 個）、選符石、用符文碎片升級符文。符文碎片由力量試煉掉落。</p>
+            <div class="rune-tab" data-zone="runeTab"></div>
           </section>
           <section class="panel-section" data-panel="reincarnation">
             <h2>輪迴</h2>
@@ -310,6 +323,7 @@ export class UI {
       inventory: z("inventory"),
       craft: z("craft"),
       research: z("research"),
+      runeTab: z("runeTab"),
       reincarnation: z("reincarnation"),
     };
     this.drawerEl = this.root.querySelector("[data-drawer]") as HTMLElement;
@@ -656,11 +670,17 @@ export class UI {
         this.persistView();
         if (this.currentState) { this.renderBattleInfoTabs(); this.renderHeroPanel(); this.renderEquipped(this.currentState); this.renderRunes(this.currentState); }
         break;
-      case "selectRune":
-        this.cb.onSelectRune(arg as RuneId);
+      case "toggleRune":
+        this.cb.onToggleRune(arg as RuneId);
         break;
-      case "clearRune":
-        this.cb.onClearRune();
+      case "selectStone":
+        this.cb.onSelectStone(arg as RuneStoneId);
+        break;
+      case "upgradeRune":
+        this.cb.onUpgradeRune(arg as RuneId);
+        break;
+      case "unlockStone":
+        this.cb.onUnlockStone(arg as RuneStoneId);
         break;
       // ---- 過濾器（每行） ----
       case "openFilter":
@@ -817,6 +837,7 @@ export class UI {
     this.renderResearch();
     this.renderReincarnation(state);
     this.renderRunes(state);
+    this.renderRuneTab(state);
     this.renderStageModal(state);
     this.renderFilterModal(state);
     this.renderBagFilterModal(state);
@@ -831,6 +852,9 @@ export class UI {
     this.tabBtnEls.bag?.classList.toggle("flash-guide", state.progress.craftedEquipmentOnce && !state.progress.bagGuideSeen);
     if (reincTab) reincTab.hidden = !state.reincarnation.gameCleared && state.reincarnation.cycle <= 1;
     if (this.activeTab === "reincarnation" && !state.reincarnation.gameCleared && state.reincarnation.cycle <= 1) this.setTab("prod");
+    const runeTab = this.root.querySelector<HTMLElement>("[data-rune-tab]");
+    if (runeTab) runeTab.hidden = !state.progress.runeTabUnlocked;
+    if (this.activeTab === "rune" && !state.progress.runeTabUnlocked) this.setTab("prod");
     this.tick(state);
   }
 
@@ -856,8 +880,7 @@ export class UI {
       enemyAbils.push({ key: "evolve", icon: "🧬", name: "進化", effect: `每 5 秒依序增加 ${Math.round(ENEMY_EVOLVE_RATE * 100)}% 攻擊、防禦、攻速（累加）` });
     }
     const heroAbils: Abil[] = [];
-    const rune = state.runes.selected;
-    if (rune) {
+    for (const rune of activeRunes(state)) {
       const def = RUNE_DEFS[rune];
       heroAbils.push({ key: `rune:${rune}`, icon: def.icon, name: def.name, effect: def.summary, sub: def.drawback });
     }
@@ -1035,38 +1058,97 @@ export class UI {
     this.els.equipped.style.display = showStats || showRunes ? "none" : "flex";
   }
 
+  /** 左下角色區「符文」子分頁：唯讀顯示當前作用符文與符石（管理移至右側「符文」分頁）。 */
   private renderRunes(state: GameState): void {
     const eff = effectiveRuneSelection(state);
-    const active = state.runes.selected; // 當前實際生效（正在套用）
-    const pendingClear = eff.pending && eff.id === null; // 戰鬥中預排卸下符文
-    const cells = state.runes.owned
-      .map((id) => {
-        const rune = RUNE_DEFS[id];
-        const isActive = active === id;
-        const isPending = eff.pending && eff.id === id && active !== id; // 下場要換成這顆
-        const stateText = isActive
-          ? (pendingClear ? "正在套用 · 下場卸下" : "正在套用")
-          : isPending ? "下場套用" : "點擊配置";
-        return `<button class="rune-cell${isActive ? " active" : ""}${isPending ? " pending" : ""}" data-act="selectRune" data-arg="${id}">
-          <span class="rune-cell__icon">${rune.icon}</span>
-          <span class="rune-cell__name">${rune.name}</span>
-          <span class="rune-cell__summary">${rune.summary}</span>
-          <span class="rune-cell__drawback">${rune.drawback}</span>
-          <span class="rune-cell__state">${stateText}</span>
-        </button>`;
-      })
-      .join("");
-    const socket = active
-      ? `<button class="rune-socket rune-socket--filled rune-socket--button" data-act="clearRune" title="卸下符文"><span class="rune-socket__icon">${RUNE_DEFS[active].icon}</span></button>`
-      : `<div class="rune-socket"><span class="rune-socket__icon">□</span></div>`;
+    const stone = state.runes.selectedStone ? RUNE_STONES[state.runes.selectedStone] : null;
+    const cells = eff.ids.length
+      ? eff.ids.map((id) => {
+          const r = RUNE_DEFS[id];
+          return `<div class="rune-cell active">
+            <span class="rune-cell__icon">${r.icon}</span>
+            <span class="rune-cell__name">${r.name} <span class="rune-lv">LV${runeLevel(state, id)}</span></span>
+            <span class="rune-cell__summary">${r.summary}</span>
+            <span class="rune-cell__drawback">${r.drawback}</span>
+          </div>`;
+        }).join("")
+      : `<div class="rune-empty-note">未配置符文</div>`;
+    const stoneLine = stone ? `<div class="rune-current__stone">符石：${stone.icon} ${stone.name}</div>` : "";
+    const pendNote = eff.pending ? `<div class="rune-pend-note">下場套用變更</div>` : "";
     this.els.runes.innerHTML = `
       <div class="rune-layout">
         <div class="rune-current">
-          <div class="rune-current__label">當前符文</div>
-          ${socket}
+          <div class="rune-current__label">當前符文（在右側「🔮 符文」分頁管理）</div>
+          ${stoneLine}${pendNote}
         </div>
         <div class="rune-grid">${cells}</div>
       </div>`;
+  }
+
+  /** 右側「符文」分頁：配置作用符文＋符石＋升級（消耗符文碎片）。 */
+  private renderRuneTab(state: GameState): void {
+    const shards = state.inventory[RUNE_SHARD] ?? 0;
+    const shardIcon = MATERIALS[RUNE_SHARD]?.icon ?? "🔮";
+    const eff = effectiveRuneSelection(state);
+    const max = maxActiveRunes(state);
+
+    const head = `<div class="rune-tab__head">${shardIcon} 符文碎片 <b>${fmtNum(shards)}</b>　·　可同時裝備 <b>${max}</b> 個</div>`;
+
+    const runeCells = state.runes.owned.map((id) => {
+      const r = RUNE_DEFS[id];
+      const on = eff.ids.includes(id);
+      return `<button class="rune-cell${on ? " active" : ""}" data-act="toggleRune" data-arg="${id}">
+        <span class="rune-cell__icon">${r.icon}</span>
+        <span class="rune-cell__name">${r.name} <span class="rune-lv">LV${runeLevel(state, id)}</span></span>
+        <span class="rune-cell__summary">${r.summary}</span>
+        <span class="rune-cell__drawback">${r.drawback}</span>
+        <span class="rune-cell__state">${on ? "作用中" : "點擊配置"}</span>
+      </button>`;
+    }).join("");
+
+    const stoneCells = (Object.keys(RUNE_STONES) as RuneStoneId[]).map((sid) => {
+      const s = RUNE_STONES[sid];
+      const unlocked = state.runes.unlockedStones.includes(sid);
+      const on = state.runes.selectedStone === sid;
+      if (!unlocked) {
+        return `<div class="rune-cell rune-cell--stone locked">
+          <span class="rune-cell__icon">${s.icon}</span>
+          <span class="rune-cell__name">${s.name}</span>
+          <span class="rune-cell__summary">${s.summary}</span>
+          <button class="mc-mini-btn rune-stone-buy" data-act="unlockStone" data-arg="${sid}"${shards >= RUNE_STONE_COST ? "" : " disabled"}>解鎖 ${shardIcon}${RUNE_STONE_COST}</button>
+        </div>`;
+      }
+      return `<button class="rune-cell rune-cell--stone${on ? " active" : ""}" data-act="selectStone" data-arg="${sid}">
+        <span class="rune-cell__icon">${s.icon}</span>
+        <span class="rune-cell__name">${s.name}</span>
+        <span class="rune-cell__summary">${s.summary}</span>
+        <span class="rune-cell__state">${on ? "作用中" : "點擊啟用"}</span>
+      </button>`;
+    }).join("");
+
+    const upRows = state.runes.owned.map((id) => {
+      const r = RUNE_DEFS[id];
+      const lv = runeLevel(state, id);
+      const maxed = lv >= RUNE_MAX_LEVEL;
+      const cost = maxed ? 0 : runeLevelCost(lv);
+      const pct = Math.round((1 + 0.1 * (lv - 1)) * 100);
+      return `<div class="rune-up-row">
+        <span class="rune-up-row__name">${r.icon} ${r.name}</span>
+        <span class="rune-up-row__lv">LV ${lv}/${RUNE_MAX_LEVEL}（效果 ${pct}%）</span>
+        ${maxed
+          ? `<span class="rune-up-row__max">已滿級</span>`
+          : `<button class="mc-mini-btn" data-act="upgradeRune" data-arg="${id}"${shards >= cost ? "" : " disabled"}>升級 ${shardIcon}${fmtNum(cost)}</button>`}
+      </div>`;
+    }).join("");
+
+    this.els.runeTab.innerHTML = `
+      ${head}
+      <h3 class="rune-tab__h">作用符文（可選 ${max} 個）</h3>
+      <div class="rune-grid">${runeCells}</div>
+      <h3 class="rune-tab__h">符石（一次只一個生效）</h3>
+      <div class="rune-grid">${stoneCells}</div>
+      <h3 class="rune-tab__h">符文升級</h3>
+      <div class="rune-up-list">${upRows}</div>`;
   }
 
   private buildInventory(): void {

@@ -30,6 +30,7 @@ import { equip, unequip, toggleItemLock, toWarehouse, fromWarehouse } from "./ga
 import { doReroll, doAugment } from "./game/craft.ts";
 import { doMutate, doRemoveMutation } from "./game/mutation.ts";
 import { inBattle, queueLoadoutAction, effectiveRuneSelection, cancelPendingEquip, cancelPendingVacate } from "./game/loadout.ts";
+import { maxActiveRunes, selectStone, upgradeRune, unlockStone } from "./game/runes.ts";
 import { socketCore, unsocketCore } from "./game/machineCores.ts";
 import { tickDismantler, researchBase, researchAffix } from "./game/research.ts";
 import { BattleRenderer } from "./render/battle.ts";
@@ -245,22 +246,19 @@ const ui = new UI(root, canvas, {
     ui.refresh(state);
   },
   onResearchBase: (slot) => { researchBase(state, slot); ui.refresh(state); },
-  onSelectRune: (id) => {
-    if (inBattle(state)) {
-      const eff = effectiveRuneSelection(state);
-      queueLoadoutAction(state, { kind: "rune", id: eff.id === id ? null : id });
-    } else {
-      state.runes.selected = state.runes.selected === id ? null : id;
-    }
+  onToggleRune: (id) => {
+    const eff = effectiveRuneSelection(state);
+    const max = maxActiveRunes(state);
+    let next = eff.ids.includes(id) ? eff.ids.filter((x) => x !== id) : [...eff.ids, id];
+    if (next.length > max) next = next.slice(next.length - max); // 超過上限丟最舊
+    if (inBattle(state)) queueLoadoutAction(state, { kind: "rune", ids: next });
+    else state.runes.selected = next;
     ui.refresh(state);
     save(state);
   },
-  onClearRune: () => {
-    if (inBattle(state)) queueLoadoutAction(state, { kind: "rune", id: null });
-    else state.runes.selected = null;
-    ui.refresh(state);
-    save(state);
-  },
+  onSelectStone: (id) => { selectStone(state, id); ui.refresh(state); save(state); },
+  onUpgradeRune: (id) => { if (upgradeRune(state, id)) { ui.refresh(state); save(state); } },
+  onUnlockStone: (id) => { if (unlockStone(state, id)) { ui.refresh(state); save(state); } },
   onVictoryContinue: () => { state.reincarnation.victoryPending = false; ui.refresh(state); },
   onReincarnate: (buff) => {
     state = applyReincarnation(state, createInitialState(), buff);

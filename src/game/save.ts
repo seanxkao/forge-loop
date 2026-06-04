@@ -5,7 +5,7 @@ import { normalizeUnlockProgress } from "./unlocks.ts";
 import { fixRunawayResearch } from "./research.ts";
 import { countVariableAffixes } from "./itemAffixes.ts";
 import { affixLabel, affixTags, isPctAffix } from "./affixMeta.ts";
-import { INITIAL_RUNES, RUNE_DEFS } from "./runes.ts";
+import { INITIAL_RUNES, RUNE_DEFS, RUNE_STONES } from "./runes.ts";
 import { CORE_FIXED_AFFIX, LEGENDARY_CORE_LUCKY_AFFIX } from "./coreContent.ts";
 
 const KEY = "forge-loop-save";
@@ -282,8 +282,21 @@ function normalizeRunes(state: GameState): void {
     ? state.runes.owned.filter((id): id is keyof typeof RUNE_DEFS => typeof id === "string" && id in RUNE_DEFS)
     : [];
   if (state.runes.owned.length === 0) state.runes.owned = [...INITIAL_RUNES];
-  if (!state.runes.selected || !(state.runes.selected in RUNE_DEFS) || !state.runes.owned.includes(state.runes.selected)) {
-    state.runes.selected = null;
+  // selected：陣列；舊檔的單一字串自動轉成單元素陣列
+  const rawSel = state.runes.selected as unknown;
+  const sel = Array.isArray(rawSel) ? rawSel : typeof rawSel === "string" ? [rawSel] : [];
+  state.runes.selected = sel.filter(
+    (id): id is keyof typeof RUNE_DEFS => typeof id === "string" && id in RUNE_DEFS && state.runes.owned.includes(id as keyof typeof RUNE_DEFS),
+  );
+  if (!state.runes.levels || typeof state.runes.levels !== "object") state.runes.levels = {};
+  state.runes.unlockedStones = Array.isArray(state.runes.unlockedStones)
+    ? state.runes.unlockedStones.filter((id): id is keyof typeof RUNE_STONES => typeof id === "string" && id in RUNE_STONES)
+    : [];
+  if (
+    state.runes.selectedStone &&
+    (!(state.runes.selectedStone in RUNE_STONES) || !state.runes.unlockedStones.includes(state.runes.selectedStone))
+  ) {
+    state.runes.selectedStone = null;
   }
 }
 
@@ -291,10 +304,11 @@ function restoreRuneSelection(state: GameState, saved: unknown): void {
   if (!saved || typeof saved !== "object") return;
   const rawRunes = (saved as Record<string, unknown>).runes;
   if (!rawRunes || typeof rawRunes !== "object") return;
-  const rawSelected = (rawRunes as Record<string, unknown>).selected;
-  if (typeof rawSelected !== "string" || !(rawSelected in RUNE_DEFS)) return;
-  if (!state.runes.owned.includes(rawSelected as keyof typeof RUNE_DEFS)) return;
-  state.runes.selected = rawSelected as keyof typeof RUNE_DEFS;
+  const raw = (rawRunes as Record<string, unknown>).selected;
+  const ids = Array.isArray(raw) ? raw : typeof raw === "string" ? [raw] : [];
+  state.runes.selected = ids.filter(
+    (id): id is keyof typeof RUNE_DEFS => typeof id === "string" && id in RUNE_DEFS && state.runes.owned.includes(id as keyof typeof RUNE_DEFS),
+  );
 }
 
 /** migrate 前對「原始」存檔的修補：處理 migrate 陣列規則會吃掉的舊欄位。

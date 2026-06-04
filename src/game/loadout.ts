@@ -68,7 +68,7 @@ export function applyPendingLoadout(state: GameState): void {
     else equip(state, a.uid);
   }
   for (const a of actions) {
-    if (a.kind === "rune") state.runes.selected = a.id && a.id in RUNE_DEFS && state.runes.owned.includes(a.id) ? a.id : null;
+    if (a.kind === "rune") state.runes.selected = a.ids.filter((id) => id in RUNE_DEFS && state.runes.owned.includes(id));
   }
   state.pendingLoadout = [];
 }
@@ -149,11 +149,11 @@ export function cancelPendingVacate(state: GameState, slot: EquipSlotId): void {
 }
 
 /** UI：「顯示用」符文選擇——有待辦時為待辦的最後值，否則為當前生效值。 */
-export function effectiveRuneSelection(state: GameState): { pending: boolean; id: RuneId | null } {
+export function effectiveRuneSelection(state: GameState): { pending: boolean; ids: RuneId[] } {
   let pending = false;
-  let id: RuneId | null = state.runes.selected;
+  let ids: RuneId[] = state.runes.selected;
   for (const a of state.pendingLoadout) {
-    if (a.kind === "rune") { pending = true; id = a.id; }
+    if (a.kind === "rune") { pending = true; ids = a.ids; }
   }
-  return { pending, id };
+  return { pending, ids };
 }

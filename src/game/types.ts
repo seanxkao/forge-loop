@@ -3,6 +3,7 @@ export type ItemSlot = Slot | "core";
 export type BaseResearchSlot = Slot | "core";
 export type EquipSlotId = "weapon" | "armor" | "accessory1" | "accessory2";
 export type RuneId = "berserk_haste" | "vital_regen" | "evolve";
+export type RuneStoneId = "less_drawback" | "amplify" | "dual";
 export type ItemRarity = "normal" | "magic" | "rare" | "legendary";
 export type ItemKind = "equipment" | "core";
 export type AffixTag = "physical" | "crit" | "speed" | "life" | "defense" | "craft" | "mutation";
@@ -78,6 +79,8 @@ export interface EnemyDef {
   healPctPerSec?: number;
   /** 進化的使徒：每 5 秒輪流 +5% 原始攻擊／防禦／攻速（累加）。 */
   evolve?: boolean;
+  /** 力量的使徒：開場與每 5 秒刷新成滿盾的盾量（如 32000）；盾未破時攻擊、破盾後停手到刷新。 */
+  shield?: number;
 }
 
 export interface StageDef {
@@ -297,6 +300,10 @@ export interface CombatState {
   createModeTimer: number;
   createMode: 0 | 1 | 2;
   createModeAnnounced: boolean;
+  /** 力量的使徒護盾：當前盾量、刷新計時、是否已被打破（破盾期間尾王停手）。 */
+  shieldHp: number;
+  shieldTimer: number;
+  shieldBroken: boolean;
 }
 
 export type ReincarnationBuff = "research" | "materials" | "power";
@@ -310,14 +317,21 @@ export interface ReincarnationState {
 
 export interface RuneState {
   owned: RuneId[];
-  selected: RuneId | null;
+  /** 當前配置的符文（0~2 個；雙生符石啟用才可 2 個）。 */
+  selected: RuneId[];
+  /** 每個符文的等級（預設 1，最高 20；每級 +10% 效果）。 */
+  levels: Record<string, number>;
+  /** 已用符文碎片解鎖的符石。 */
+  unlockedStones: RuneStoneId[];
+  /** 當前生效的符石（一次只一個）。 */
+  selectedStone: RuneStoneId | null;
 }
 
 /** 戰鬥中更改裝備／符文的待辦動作：下場戰鬥開始時才依序套用。 */
 export type LoadoutAction =
   | { kind: "equip"; uid: number; slot?: EquipSlotId } // slot＝排入當下決定的目標槽，固定不重算
   | { kind: "unequip"; slot: EquipSlotId }
-  | { kind: "rune"; id: RuneId | null };
+  | { kind: "rune"; ids: RuneId[] };
 
 export interface ProgressState {
   unlockedStageCount: number;
@@ -336,6 +350,8 @@ export interface ProgressState {
   /** 擊敗進化的使徒的累積次數：解鎖變異、決定每件變異次數上限 min(8, 2+此值)。 */
   apostleWins: number;
   createTrialCleared: boolean;
+  /** 首次挑戰力量試煉（不論成敗）即解鎖右側「符文」分頁。 */
+  runeTabUnlocked: boolean;
 }
 
 export interface GameState {

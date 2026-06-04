@@ -13,6 +13,7 @@ export function createInitialState(): GameState {
       shard: 0,
       crystal: 100,
       mutagen: 0, // 需列在預設 schema，否則 migrate 會在重整時丟棄（突變原是囤積型通貨，不可遺失）
+      runeShard: 0, // 符文碎片（力量試煉掉落、強化符文用）；同樣須列入 schema 才不會被 migrate 丟棄
       living_gold: 0,
       biosteel: 0,
       stable_biosteel: 0,
@@ -54,13 +55,19 @@ export function createInitialState(): GameState {
       createModeTimer: 0,
       createMode: 0,
       createModeAnnounced: false,
+      shieldHp: 0,
+      shieldTimer: 0,
+      shieldBroken: false,
     },
     research: { points: {}, stages: {} },
     baseResearch: { weapon: 0, armor: 0, accessory: 0, core: 0 },
     baseResearchPoints: { weapon: 0, armor: 0, accessory: 0, core: 0 },
     runes: {
       owned: [...INITIAL_RUNES],
-      selected: null,
+      selected: [],
+      levels: {},
+      unlockedStones: [],
+      selectedStone: null,
     },
     pendingLoadout: [],
     reincarnation: {
@@ -84,6 +91,7 @@ export function createInitialState(): GameState {
       trialResearchLayers: 0,
       apostleWins: 0,
       createTrialCleared: false,
+      runeTabUnlocked: false,
     },
     nextEquipId: 1,
   };

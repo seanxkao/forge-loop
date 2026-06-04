@@ -169,6 +169,12 @@ export class BattleRenderer {
       state.combat.enemyHp / Math.max(1, enemy.maxHp),
       "#e2574c",
     );
+    // 力量的使徒護盾條：疊在 HP 條上，寬度＝盾自身百分比（盾/盾上限），與 HP 無關
+    if (enemy.shield && state.combat.shieldHp > 0) {
+      const sw = Math.round(52 * Math.min(1, state.combat.shieldHp / enemy.shield));
+      ctx.fillStyle = "#7fd8ff";
+      ctx.fillRect(ENEMY_X - 26, GROUND_Y - 86, sw, 6);
+    }
     ctx.fillStyle = "#cfc8e8";
     this.drawEnemyName(enemy.name, ENEMY_X, GROUND_Y + 18, 132);
 
