@@ -8,9 +8,14 @@ export function createInitialState(): GameState {
   return {
     version: SAVE_VERSION,
     inventory: {
+      ore: 0,
       ingot: 200,
+      shard: 0,
       crystal: 100,
       mutagen: 0, // 需列在預設 schema，否則 migrate 會在重整時丟棄（突變原是囤積型通貨，不可遺失）
+      living_gold: 0,
+      biosteel: 0,
+      stable_biosteel: 0,
     },
     // 生產：開局 1 個子分頁、無放置；送 1 台庫存組裝機由玩家放置（首格閃爍引導）。
     production: { tabs: [{ name: "生產線", rows: [] }] },
@@ -46,6 +51,9 @@ export function createInitialState(): GameState {
       heroEvolveDef: 0,
       heroEvolveSpd: 0,
       heroEvolveNext: 0,
+      createModeTimer: 0,
+      createMode: 0,
+      createModeAnnounced: false,
     },
     research: { points: {}, stages: {} },
     baseResearch: { weapon: 0, armor: 0, accessory: 0, core: 0 },
@@ -75,6 +83,7 @@ export function createInitialState(): GameState {
       trialIntroSeen: false,
       trialResearchLayers: 0,
       apostleWins: 0,
+      createTrialCleared: false,
     },
     nextEquipId: 1,
   };

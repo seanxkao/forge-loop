@@ -211,6 +211,12 @@ export type Item = Equipment | CoreItem;
 export type RecipeId =
   | "smelt"
   | "crystallize"
+  | "create_biosteel"
+  | "create_heal"
+  | "create_damage"
+  | "stable_ingot"
+  | "stable_crystal"
+  | "stable_mutagen"
   | "weapon"
   | "armor"
   | "accessory"
@@ -288,6 +294,9 @@ export interface CombatState {
   heroEvolveDef: number;
   heroEvolveSpd: number;
   heroEvolveNext: number;
+  createModeTimer: number;
+  createMode: 0 | 1 | 2;
+  createModeAnnounced: boolean;
 }
 
 export type ReincarnationBuff = "research" | "materials" | "power";
@@ -326,6 +335,7 @@ export interface ProgressState {
   trialResearchLayers: number;
   /** 擊敗進化的使徒的累積次數：解鎖變異、決定每件變異次數上限 min(8, 2+此值)。 */
   apostleWins: number;
+  createTrialCleared: boolean;
 }
 
 export interface GameState {

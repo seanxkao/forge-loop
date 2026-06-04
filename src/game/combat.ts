@@ -1,5 +1,5 @@
-import type { GameState, EnemyDef, StageDef } from "./types.ts";
-import { STAGES, findStage } from "./content.ts";
+﻿import type { GameState, EnemyDef, StageDef } from "./types.ts";
+import { STAGES, findStage, CREATE_TRIAL_ID } from "./content.ts";
 import { deriveStats, attackInterval } from "./hero.ts";
 import { add } from "./inventory.ts";
 import { materialDropMultiplier } from "./reincarnation.ts";
@@ -9,6 +9,7 @@ import { grantLegendaryCoreReward } from "./legendaryCores.ts";
 import { applyPendingLoadout } from "./loadout.ts";
 import { applyTrialReward, type TrialResult } from "./research.ts";
 import { mutationCombatEffects } from "./mutation.ts";
+import { activeMachineCountByRecipe } from "./production.ts";
 
 function effectiveDefense(defense: number, penPct: number): number {
   const pen = Math.max(0, Math.min(1, penPct));
@@ -28,21 +29,53 @@ export interface CombatFx {
   onDrop?(mat: string, qty: number): void;
   onStageClear?(): void;
   onTrialComplete?(result: TrialResult): void;
+  onNotice?(text: string): void;
 }
 
 export function getStage(stageId: string): StageDef {
   return findStage(stageId) ?? STAGES[0];
 }
 
-/** 進化的使徒每層進化比率。 */
+/** ?脣??蝙敺?撅日脣?瘥???*/
 export const ENEMY_EVOLVE_RATE = 0.20;
+const CREATE_HEAL_PER_MACHINE = 0.00001;
+const CREATE_DAMAGE_MORE_PER_MACHINE = 0.0001;
+const CREATE_ATTACK_SPEED_MULT = 2;
+const CREATE_ATTACK_MODE_DAMAGE_REDUCTION = 0.99;
+const CREATE_REGEN_PCT = 0.02;
+const CREATE_MODE_DURATIONS: Record<0 | 1 | 2, number> = {
+  0: 5,
+  1: 10,
+  2: 10,
+};
 
-/** 進化某一維度（攻／防／攻速）的倍率：累加 stacks 層、每層 rate。比率為輸入，敵人／英雄共用。 */
+function inCreateTrial(state: GameState): boolean {
+  return state.combat.stageId === CREATE_TRIAL_ID;
+}
+
+function clearCreateTrialMaterials(state: GameState): void {
+  state.inventory.living_gold = 0;
+  state.inventory.biosteel = 0;
+}
+
+function convertBiosteelToStable(state: GameState): void {
+  const remain = state.inventory.biosteel ?? 0;
+  const stable = Math.floor(remain * 0.1);
+  if (stable > 0) add(state, "stable_biosteel", stable);
+  state.inventory.biosteel = 0;
+  state.inventory.living_gold = 0;
+}
+
+function createModeLabel(mode: 0 | 1 | 2): string {
+  return mode === 0 ? "防禦模式" : mode === 1 ? "攻擊模式" : "再生模式";
+}
+
+/** ?脣???蝬剖漲嚗嚗嚗????嚗敞??stacks 撅扎?撅?rate???頛詨嚗鈭綽??梢??梁??*/
 function evolveFactor(stacks: number, rate: number): number {
   return 1 + rate * stacks;
 }
 
-/** 進化的使徒：依累加層數算出敵人「有效」數值（攻速＝間隔縮短）。 */
+/** ?脣??蝙敺?靘敞?惜?貊??箸鈭箝???潘??駁???蝮桃嚗?*/
 function effectiveEnemy(c: GameState["combat"], enemy: EnemyDef): { atk: number; def: number; atkInterval: number } {
   if (!enemy.evolve) return { atk: enemy.atk, def: enemy.def, atkInterval: enemy.atkInterval };
   return {
@@ -66,7 +99,7 @@ function resetEvolve(c: GameState["combat"]): void {
   c.evolveNext = 0;
 }
 
-/** 進化符文：歸零英雄進化層數（死亡／換關時呼叫；跨波不重置）。 */
+/** ?脣?蝚行?嚗飛?嗉?脣?撅斗嚗香鈭∴?????恬?頝冽郭銝?蝵殷???*/
 function resetHeroEvolve(c: GameState["combat"]): void {
   c.heroEvolveTimer = 0;
   c.heroEvolveAtk = 0;
@@ -76,9 +109,11 @@ function resetHeroEvolve(c: GameState["combat"]): void {
 }
 
 export function startStage(state: GameState, stageId: string): void {
-  applyPendingLoadout(state); // 下場戰鬥開始：套用戰鬥中暫存的換裝／符文
+  applyPendingLoadout(state); // 銝?圈洛??嚗??冽擛乩葉?怠???鋆?蝚行?
   const c = state.combat;
+  if (inCreateTrial(state) && stageId !== CREATE_TRIAL_ID) clearCreateTrialMaterials(state);
   c.stageId = coerceUnlockedStageId(state, stageId);
+  if (c.stageId === CREATE_TRIAL_ID) clearCreateTrialMaterials(state);
   c.researchMult = getStage(c.stageId).researchMult ?? 1;
   c.waveIndex = 0;
   c.enemyIndex = 0;
@@ -88,6 +123,9 @@ export function startStage(state: GameState, stageId: string): void {
   c.pendingStageId = null;
   resetEvolve(c);
   resetHeroEvolve(c);
+  c.createModeTimer = 0;
+  c.createMode = 0;
+  c.createModeAnnounced = false;
   c.heroHp = deriveStats(state).hp;
   spawnCurrent(state);
 }
@@ -95,7 +133,10 @@ export function startStage(state: GameState, stageId: string): void {
 function spawnCurrent(state: GameState): void {
   state.combat.enemyHp = currentEnemyDef(state).maxHp;
   state.combat.enemyAtkTimer = 0;
-  resetEvolve(state.combat); // 每波重置進化層數（使徒出場時從 0 起算）
+  resetEvolve(state.combat);
+  state.combat.createModeTimer = 0;
+  state.combat.createMode = 0;
+  state.combat.createModeAnnounced = false;
 }
 
 function advance(state: GameState, fx: CombatFx): void {
@@ -120,8 +161,11 @@ function advance(state: GameState, fx: CombatFx): void {
       c.enemyHp = 0;
       resetEvolve(c);
       if (stage.trial) {
-        // 試煉：解鎖進化符文＋套用研究折扣＋重算等級＋退還剩餘，並重玩（可重複刷）
         if (!state.runes.owned.includes("evolve")) state.runes.owned.push("evolve");
+        if (stageId === CREATE_TRIAL_ID) {
+          state.progress.createTrialCleared = true;
+          convertBiosteelToStable(state);
+        }
         if (stage.clearReward === "reincResearch") fx.onTrialComplete?.(applyTrialReward(state));
         c.pendingStageId = stageId;
       } else {
@@ -163,19 +207,22 @@ function rollDrops(state: GameState, enemy: EnemyDef, fx: CombatFx): void {
 }
 
 function heroDeath(state: GameState, fx: CombatFx): void {
-  applyPendingLoadout(state); // 戰敗重來＝新一場戰鬥：套用暫存換裝／符文
+  applyPendingLoadout(state); // ?唳???嚗銝?湔擛伐?憟?怠???嚗泵??
   const c = state.combat;
+  if (inCreateTrial(state)) clearCreateTrialMaterials(state);
   c.waveIndex = 0;
   c.enemyIndex = 0;
   c.heroAtkTimer = 0;
   c.heroHp = deriveStats(state).hp;
-  resetHeroEvolve(c); // 死亡：英雄進化層數歸零
+  resetHeroEvolve(c); // 甇颱滿嚗?脣?撅斗甇賊
   fx.onHeroDied?.();
   spawnCurrent(state);
 }
 
 export function tickCombat(state: GameState, dt: number, fx: CombatFx): void {
   const c = state.combat;
+  const createHealMachines = inCreateTrial(state) ? activeMachineCountByRecipe(state, "create_heal") : 0;
+  const createDamageMachines = inCreateTrial(state) ? activeMachineCountByRecipe(state, "create_damage") : 0;
   if (c.clearPause > 0) {
     c.clearPause = Math.max(0, c.clearPause - dt);
     if (c.clearPause > 0) return;
@@ -184,7 +231,7 @@ export function tickCombat(state: GameState, dt: number, fx: CombatFx): void {
     return;
   }
   const stats = deriveStats(state);
-  const mut = mutationCombatEffects(state); // 變異詞：二連擊／暴擊回血／低血秒回（maxHpPct 已併入 stats.hp）
+  const mut = mutationCombatEffects(state); // 霈閰?鈭??嚗??銵嚗?銵蝘?嚗axHpPct 撌脖蔥??stats.hp嚗?
 
   if (c.enemyHp <= 0) {
     spawnCurrent(state);
@@ -193,18 +240,37 @@ export function tickCombat(state: GameState, dt: number, fx: CombatFx): void {
   if (c.heroHp <= 0) c.heroHp = stats.hp;
 
   if (stats.hpRegen > 0 && c.heroHp > 0 && c.heroHp < stats.hp) {
-    // 變異「低血秒回」：生命 <50% 時秒回乘 (1+量)
+    // 霈??銵蝘???? <50% ???? (1+??
     const regenMult = c.heroHp < stats.hp * 0.5 ? 1 + mut.lowHpRegenMult : 1;
     c.heroHp = Math.min(stats.hp, c.heroHp + stats.hpRegen * regenMult * dt);
+  }
+  if (createHealMachines > 0 && c.heroHp > 0 && c.heroHp < stats.hp) {
+    c.heroHp = Math.min(stats.hp, c.heroHp + stats.hp * CREATE_HEAL_PER_MACHINE * createHealMachines * dt);
   }
 
   const enemy = currentEnemyDef(state);
 
-  // 黃金王：每秒回復最大血量比例
+  // 暺???瘥??儔?憭扯???靘?
   if (enemy.healPctPerSec && c.enemyHp > 0 && c.enemyHp < enemy.maxHp) {
     c.enemyHp = Math.min(enemy.maxHp, c.enemyHp + enemy.maxHp * enemy.healPctPerSec * dt);
   }
-  // 進化的使徒：每 5 秒輪流 +20% 原始 攻擊→防禦→攻速（累加）
+  const isCreateBoss = inCreateTrial(state) && c.waveIndex === 9 && c.enemyIndex === 0;
+  if (isCreateBoss) {
+    if (!c.createModeAnnounced) {
+      fx.onNotice?.(createModeLabel(c.createMode));
+      c.createModeAnnounced = true;
+    }
+    c.createModeTimer += dt;
+    while (c.createModeTimer >= CREATE_MODE_DURATIONS[c.createMode]) {
+      c.createModeTimer -= CREATE_MODE_DURATIONS[c.createMode];
+      c.createMode = ((c.createMode + 1) % 3) as 0 | 1 | 2;
+      fx.onNotice?.(createModeLabel(c.createMode));
+    }
+    if (c.createMode === 2 && c.enemyHp > 0 && c.enemyHp < enemy.maxHp) {
+      c.enemyHp = Math.min(enemy.maxHp, c.enemyHp + enemy.maxHp * CREATE_REGEN_PCT * dt);
+    }
+  }
+  // ?脣??蝙敺?瘥?5 蝘憚瘚?+20% ?? ?餅??蝳色??駁?蝝臬?嚗?
   if (enemy.evolve) {
     c.evolveTimer += dt;
     while (c.evolveTimer >= 5) {
@@ -217,7 +283,7 @@ export function tickCombat(state: GameState, dt: number, fx: CombatFx): void {
   }
   const eff = effectiveEnemy(c, enemy);
 
-  // 進化符文：英雄每 5 秒輪流 +5% 原始 攻擊→防禦→攻速（累加，跨波保留）
+  // ?脣?蝚行?嚗?? 5 蝘憚瘚?+5% ?? ?餅??蝳色??駁?蝝臬?嚗楊瘜Ｖ???
   if (state.runes.selected === "evolve") {
     c.heroEvolveTimer += dt;
     while (c.heroEvolveTimer >= 5) {
@@ -228,13 +294,16 @@ export function tickCombat(state: GameState, dt: number, fx: CombatFx): void {
       c.heroEvolveNext = (c.heroEvolveNext + 1) % 3;
     }
   }
-  // 未選進化符文時層數恆為 0，下列 evolveFactor 皆回 1，故無條件套用即可
+  // ?芷?脣?蝚行??惜?豢???0嚗???evolveFactor ?? 1嚗??⊥?隞嗅??典??
   const heroDef = stats.def * evolveFactor(c.heroEvolveDef, RUNE_EVOLVE_RATE);
 
-  // 一次英雄攻擊：結算傷害＋暴擊回血，回傳是否擊殺。
+  // 銝甈∟???蝯??瑕拿嚗??銵嚗??單?行?畾箝?
   const heroHit = (): boolean => {
+    if (isCreateBoss && c.createMode === 0) return false;
     const crit = Math.random() < stats.critChance;
     let atk = rollHeroAttack(stats) * evolveFactor(c.heroEvolveAtk, RUNE_EVOLVE_RATE);
+    atk *= 1 + createDamageMachines * CREATE_DAMAGE_MORE_PER_MACHINE;
+    if (isCreateBoss && c.createMode === 1) atk *= 1 - CREATE_ATTACK_MODE_DAMAGE_REDUCTION;
     if (crit) atk *= stats.critMult;
     const dmg = Math.max(1, Math.round(atk - effectiveDefense(eff.def, stats.defPenPct)));
     c.enemyHp -= dmg;
@@ -248,20 +317,21 @@ export function tickCombat(state: GameState, dt: number, fx: CombatFx): void {
   while (c.heroAtkTimer >= interval && c.enemyHp > 0) {
     c.heroAtkTimer -= interval;
     let killed = heroHit();
-    // 變異「二連擊」：機率追加第二擊，以 10× 速度（近乎立即）打出
+    // 霈???????璈?餈賢?蝚砌???隞?10? ?漲嚗?銋??喉??
     if (!killed && mut.doubleStrikeChance > 0 && Math.random() < mut.doubleStrikeChance) killed = heroHit();
     if (killed) {
       rollDrops(state, enemy, fx);
-      if (enemy.evolve) state.progress.apostleWins = (state.progress.apostleWins ?? 0) + 1; // 擊敗進化的使徒
+      if (enemy.evolve) state.progress.apostleWins = (state.progress.apostleWins ?? 0) + 1; // ???脣??蝙敺?
       fx.onEnemyKilled?.(enemy.name);
       advance(state, fx);
       return;
     }
   }
 
+  const enemyAtkInterval = isCreateBoss && c.createMode === 1 ? eff.atkInterval / CREATE_ATTACK_SPEED_MULT : eff.atkInterval;
   c.enemyAtkTimer += dt;
-  while (c.enemyAtkTimer >= eff.atkInterval && c.heroHp > 0) {
-    c.enemyAtkTimer -= eff.atkInterval;
+  while (c.enemyAtkTimer >= enemyAtkInterval && c.heroHp > 0) {
+    c.enemyAtkTimer -= enemyAtkInterval;
     const blocked = stats.blockChance > 0 && Math.random() < stats.blockChance;
     const reduction = Math.min(0.95, stats.dmgReductionPct + (blocked ? runeBlockReductionBonus(state) : 0));
     let base = eff.atk * (1 - reduction);
@@ -275,3 +345,4 @@ export function tickCombat(state: GameState, dt: number, fx: CombatFx): void {
     }
   }
 }
+

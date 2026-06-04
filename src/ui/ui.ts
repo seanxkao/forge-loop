@@ -367,6 +367,10 @@ export class UI {
     }, 1200);
   }
 
+  notify(text: string): void {
+    this.showToast(text);
+  }
+
   private setTab(tab: string): void {
     this.activeTab = tab; // 永遠停在某個分頁，不再切回空白
     this.drawerEl.classList.add("open");
@@ -1381,7 +1385,7 @@ export class UI {
     };
     for (const def of Object.values(PROD_RECIPES)) {
       if (!isRecipeUnlocked(state, def.id)) continue;
-      if (def.kind === "refine") recipeGroups.refine.push(def);
+      if (def.kind === "refine" || def.kind === "trialHeal" || def.kind === "trialDamage" || def.kind === "trialCatalyst") recipeGroups.refine.push(def);
       else if (def.kind === "equipment" || def.kind === "core") recipeGroups.equipment.push(def);
       else if (def.kind === "assembler" || def.kind === "dismantler") recipeGroups.machine.push(def);
     }

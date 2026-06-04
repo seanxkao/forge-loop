@@ -53,6 +53,7 @@ const fx: CombatFx = {
   onHeroAttack: (d, c) => { if (!ui.isBattleHidden()) renderer.heroAttacked(d, c); },
   onEnemyAttack: (d, blocked) => { if (!ui.isBattleHidden()) renderer.enemyAttacked(d, blocked); },
   onDrop: (mat, q) => { if (!ui.isBattleHidden()) renderer.drop(`+${q}${MATERIALS[mat]?.icon ?? ""}`); },
+  onNotice: (text) => ui.notify(text),
   onStageClear: () => ui.refresh(state),
   onHeroDied: () => ui.refresh(state), // 戰敗重來會套用待辦換裝／符文，刷新清除待套用標示
   onTrialComplete: (result) => ui.showTrialResult(result),

@@ -1,4 +1,3 @@
-// 靜態遊戲內容（雛型數值，待實測平衡）
 import type {
   MaterialDef,
   StageDef,
@@ -12,7 +11,6 @@ import type {
 import { affixPool } from "./affixTable.ts";
 import { CORE_RECIPE, MATERIAL_DROP_AFFIX } from "./coreContent.ts";
 
-/** 英雄裸值（無裝備，極弱）。 */
 export const HERO_BASE: StatBlock = {
   hp: 50,
   atkMin: 7,
@@ -29,31 +27,26 @@ export const HERO_BASE: StatBlock = {
   defPenPct: 0,
 };
 
-/** 英雄基礎攻擊間隔（秒），實際間隔 = 此值 / (1 + haste)。 */
 export const HERO_BASE_INTERVAL = 1.2;
-
-/** 製裝詞綴數量權重（index 0 = 1 條 … index 3 = 4 條）。待平衡。 */
 export const GRID_WIDTH = 3;
 export const GRID_HEIGHT = 3;
 
-// ---- 素材：3 種，各對應一槽（1 原始 + 1 中間 + 1 機台），無階級 ----
-
 export const MATERIALS: Record<string, MaterialDef> = {
-  ore: { id: "ore", name: "礦石", kind: "raw", icon: "🪨" },
-  shard: { id: "shard", name: "晶石", kind: "raw", icon: "🔹" },
-  ingot: { id: "ingot", name: "金屬錠", kind: "intermediate", icon: "🟧" },
-  crystal: { id: "crystal", name: "精晶", kind: "intermediate", icon: "💠" },
-  // 突變原：變異工藝的消耗通貨，僅進化試煉產出（黃金王 1、進化的使徒 2），不受素材掉落倍率影響。
+  ore: { id: "ore", name: "鐵礦", kind: "raw", icon: "⛏" },
+  shard: { id: "shard", name: "碎晶", kind: "raw", icon: "🔹" },
+  ingot: { id: "ingot", name: "鐵錠", kind: "intermediate", icon: "🧱" },
+  crystal: { id: "crystal", name: "結晶", kind: "intermediate", icon: "💎" },
   mutagen: { id: "mutagen", name: "突變原", kind: "intermediate", icon: "🧫" },
+  living_gold: { id: "living_gold", name: "生金", kind: "intermediate", icon: "🪙" },
+  biosteel: { id: "biosteel", name: "生物鋼", kind: "intermediate", icon: "🧬" },
+  stable_biosteel: { id: "stable_biosteel", name: "穩定生物鋼", kind: "intermediate", icon: "⚙️" },
 };
-
-// ---- 裝備：3 槽各一固定基底，詞綴池見 affixTable.csv（成本／基底待平衡） ----
 
 export const RECIPES: Record<string, RecipeDef> = {
   weapon: {
     id: "weapon",
-    name: "劍",
-    icon: "🗡️",
+    name: "武器",
+    icon: "🗡",
     slot: "weapon",
     cost: { ingot: 3 },
     base: { atkMin: 18, atkMax: 22 },
@@ -61,8 +54,8 @@ export const RECIPES: Record<string, RecipeDef> = {
   },
   armor: {
     id: "armor",
-    name: "甲",
-    icon: "🛡️",
+    name: "防具",
+    icon: "🛡",
     slot: "armor",
     cost: { ingot: 4 },
     base: { hp: 80, def: 3 },
@@ -70,7 +63,7 @@ export const RECIPES: Record<string, RecipeDef> = {
   },
   accessory: {
     id: "accessory",
-    name: "護符",
+    name: "飾品",
     icon: "💍",
     slot: "accessory",
     cost: { crystal: 2 },
@@ -81,9 +74,16 @@ export const RECIPES: Record<string, RecipeDef> = {
 
 export { CORE_RECIPE };
 
-// ---- 統一配方註冊表：組裝機可指定的所有配方（提煉／裝備／核心／機台自身） ----
-
-export type RecipeKind = "refine" | "equipment" | "core" | "assembler" | "lab" | "dismantler";
+export type RecipeKind =
+  | "refine"
+  | "equipment"
+  | "core"
+  | "assembler"
+  | "lab"
+  | "dismantler"
+  | "trialHeal"
+  | "trialDamage"
+  | "trialCatalyst";
 
 export interface ProdRecipeDef {
   id: RecipeId;
@@ -91,49 +91,49 @@ export interface ProdRecipeDef {
   icon: string;
   kind: RecipeKind;
   input: Record<string, number>;
-  output?: Record<string, number>; // 僅 refine 用（產素材）
+  output?: Record<string, number>;
   cycleTime: number;
-  slot?: Slot; // equipment 用
-  /** 解鎖條件：start＝開局；zone1＝通關 1-4 後；core＝通關 2-4 後。 */
-  unlock: "start" | "zone1" | "core";
+  slot?: Slot;
+  unlock: "start" | "zone1" | "core" | "createTrial";
 }
 
-/** 組裝機建造成本：直接吃三種原料（開局靠掉落即可加開）。研究室吃中間材料。待平衡。 */
 export const ASSEMBLER_COST: Record<string, number> = { ore: 16, shard: 8 };
 export const LAB_COST: Record<string, number> = { ingot: 16, crystal: 8 };
 
 export const PROD_RECIPES: Record<RecipeId, ProdRecipeDef> = {
-  smelt: { id: "smelt", name: "熔煉", icon: "🔥", kind: "refine", input: { ore: 2 }, output: { ingot: 1 }, cycleTime: 6, unlock: "start" },
-  crystallize: { id: "crystallize", name: "晶化", icon: "⚗️", kind: "refine", input: { shard: 2 }, output: { crystal: 1 }, cycleTime: 6, unlock: "zone1" },
+  smelt: { id: "smelt", name: "煉鐵", icon: "🔥", kind: "refine", input: { ore: 2 }, output: { ingot: 1 }, cycleTime: 6, unlock: "start" },
+  crystallize: { id: "crystallize", name: "結晶化", icon: "✨", kind: "refine", input: { shard: 2 }, output: { crystal: 1 }, cycleTime: 6, unlock: "zone1" },
+  create_biosteel: { id: "create_biosteel", name: "生物鋼", icon: "🧬", kind: "refine", input: { living_gold: 1 }, output: { biosteel: 1 }, cycleTime: 2.5, unlock: "createTrial" },
+  create_heal: { id: "create_heal", name: "生鋼補血", icon: "💚", kind: "trialHeal", input: { biosteel: 1 }, cycleTime: 1, unlock: "createTrial" },
+  create_damage: { id: "create_damage", name: "生鋼增傷", icon: "🔥", kind: "trialDamage", input: { biosteel: 1 }, cycleTime: 1, unlock: "createTrial" },
+  stable_ingot: { id: "stable_ingot", name: "穩鋼煉鐵", icon: "⚙️", kind: "refine", input: { ingot: 100000, stable_biosteel: 10 }, output: { ingot: 1000000 }, cycleTime: 6, unlock: "createTrial" },
+  stable_crystal: { id: "stable_crystal", name: "穩鋼結晶", icon: "⚙️", kind: "refine", input: { crystal: 100000, stable_biosteel: 10 }, output: { crystal: 1000000 }, cycleTime: 6, unlock: "createTrial" },
+  stable_mutagen: { id: "stable_mutagen", name: "穩鋼催化", icon: "⚙️", kind: "trialCatalyst", input: { mutagen: 100, stable_biosteel: 1 }, output: { mutagen: 101 }, cycleTime: 6, unlock: "createTrial" },
   weapon: { id: "weapon", name: "武器", icon: RECIPES.weapon.icon, kind: "equipment", slot: "weapon", input: RECIPES.weapon.cost, cycleTime: 4, unlock: "start" },
   armor: { id: "armor", name: "防具", icon: RECIPES.armor.icon, kind: "equipment", slot: "armor", input: RECIPES.armor.cost, cycleTime: 4, unlock: "start" },
   accessory: { id: "accessory", name: "飾品", icon: RECIPES.accessory.icon, kind: "equipment", slot: "accessory", input: RECIPES.accessory.cost, cycleTime: 4, unlock: "zone1" },
   core: { id: "core", name: "核心", icon: CORE_RECIPE.icon, kind: "core", input: CORE_RECIPE.cost, cycleTime: 8, unlock: "core" },
-  assembler: { id: "assembler", name: "組裝機", icon: "🛠️", kind: "assembler", input: ASSEMBLER_COST, cycleTime: 3, unlock: "start" },
-  lab: { id: "lab", name: "研究室", icon: "🔬", kind: "lab", input: LAB_COST, cycleTime: 3, unlock: "start" },
+  assembler: { id: "assembler", name: "組裝機", icon: "🏭", kind: "assembler", input: ASSEMBLER_COST, cycleTime: 3, unlock: "start" },
+  lab: { id: "lab", name: "研究室", icon: "🧪", kind: "lab", input: LAB_COST, cycleTime: 3, unlock: "start" },
   dismantler: { id: "dismantler", name: "拆解機", icon: "🪓", kind: "dismantler", input: LAB_COST, cycleTime: 3, unlock: "start" },
 };
 
-// ---- 關卡：20 關，5 區 × 4 關（第 4 關為魔王） ----
-
-const RAWS = ["ore", "shard"]; // 兩種素材所有關卡都掉
+const RAWS = ["ore", "shard"] as const;
 const ZONE = [
-  { area: "礦坑帶", enemy: "史萊姆", icon: "🟢", boss: "史萊姆王" },
-  { area: "荒野帶", enemy: "野狼", icon: "🐺", boss: "狼王" },
-  { area: "晶洞帶", enemy: "晶化魔像", icon: "🗿", boss: "魔像核心" },
-  { area: "鐵域帶", enemy: "鋼鐵魔偶", icon: "🤖", boss: "鋼鐵霸主" },
-  { area: "虛空帶", enemy: "虛空獸", icon: "👾", boss: "虛空之王" },
-];
+  { area: "荒野", enemy: "狼", icon: "🐺", boss: "荒野王" },
+  { area: "洞窟", enemy: "石獸", icon: "🪨", boss: "狼王" },
+  { area: "晶林", enemy: "晶獸", icon: "🦎", boss: "晶核王" },
+  { area: "金域", enemy: "黃金獸", icon: "👑", boss: "黃金王" },
+  { area: "終境", enemy: "改造獸", icon: "🧬", boss: "使徒" },
+] as const;
 const STAGE_NAMES = [
-  "廢棄礦坑", "坍方坑道", "銅脈深處", "礦坑核心",
-  "枯狼林", "野獸平原", "巨獸棲地", "荒野盡頭",
-  "碎晶洞", "微晶迴廊", "晶簇深淵", "共鳴晶核",
-  "廢鐵堡", "熔鐵工廠", "鋼鐵巢穴", "鐵王座",
-  "虛空裂隙", "崩界回廊", "虛晶聖所", "虛空之心",
-];
+  "荒野外圍", "破裂巢穴", "灰岩坡地", "荒野王座",
+  "洞窟入口", "碎柱長廊", "回音深坑", "狼王巢心",
+  "晶林外層", "折光坡", "共鳴樹海", "晶核庭院",
+  "金域前線", "鎏金階道", "王座走廊", "黃金王庭",
+  "終境邊界", "焚燼道路", "改造熔場", "使徒前庭",
+] as const;
 
-// 每區 4 關的一般敵人數值（待平衡）。詞綴改為「非重疊分階」後平均約 +27% 強、
-// 天花板更高，故在前次基礎上再 HP/ATK ×1.3 反映。
 const E_HP = [
   [36, 58, 88, 124],
   [218, 274, 328, 400],
@@ -156,13 +156,10 @@ const E_DEF = [
   [36, 42, 48, 56],
 ];
 const Z_INTERVAL = [1.4, 1.3, 1.25, 1.2, 1.15];
-
-// 魔王數值：直接指定，與一般敵人曲線解耦，方便獨立調整（逐區加碼抵銷生產雪球；待平衡）
 const BOSS_HP = [468, 2912, 4160, 22464, 49200];
 const BOSS_ATK = [13, 21.6, 83, 220, 180];
 const BOSS_INTERVAL = [1.4, 0.65, 1.25, 1.8, 0.95];
 
-/** 三種素材全掉，量隨關卡編號指數上升（後期數量級暴增）；魔王 ×10。待平衡。 */
 function buildDrops(stageIndex: number, isBoss: boolean): DropDef[] {
   const base = Math.max(1, Math.round(1.6 ** stageIndex));
   const m = base * (isBoss ? 10 : 1);
@@ -172,15 +169,11 @@ function buildDrops(stageIndex: number, isBoss: boolean): DropDef[] {
   });
 }
 
-function makeWaves(
-  waveCount: number,
-  enemy: EnemyDef,
-  enemiesPerWave: number,
-): EnemyDef[][] {
+function makeWaves(waveCount: number, enemy: EnemyDef, enemiesPerWave: number): EnemyDef[][] {
   const waves: EnemyDef[][] = [];
-  for (let w = 0; w < waveCount; w++) {
+  for (let w = 0; w < waveCount; w += 1) {
     const wave: EnemyDef[] = [];
-    for (let e = 0; e < enemiesPerWave; e++) wave.push({ ...enemy });
+    for (let e = 0; e < enemiesPerWave; e += 1) wave.push({ ...enemy });
     waves.push(wave);
   }
   return waves;
@@ -188,11 +181,10 @@ function makeWaves(
 
 function buildStages(): StageDef[] {
   const stages: StageDef[] = [];
-  for (let i = 0; i < 20; i++) {
+  for (let i = 0; i < 20; i += 1) {
     const z = Math.floor(i / 4);
     const sub = i % 4;
     const isBoss = sub === 3;
-
     const normal: EnemyDef = {
       name: ZONE[z].enemy,
       icon: ZONE[z].icon,
@@ -207,7 +199,7 @@ function buildStages(): StageDef[] {
     let waves: EnemyDef[][];
     if (isBoss) {
       const boss: EnemyDef = {
-        name: `💀 ${ZONE[z].boss}`,
+        name: `王 ${ZONE[z].boss}`,
         icon: ZONE[z].icon,
         maxHp: BOSS_HP[z],
         atk: BOSS_ATK[z],
@@ -216,7 +208,6 @@ function buildStages(): StageDef[] {
         atkInterval: BOSS_INTERVAL[z],
         drops: buildDrops(i, true),
       };
-      // 前 4 波雜兵暖身（各 1 隻）＋ 第 5 波單一魔王
       waves = makeWaves(4, normal, 1);
       waves.push([boss]);
     } else {
@@ -226,7 +217,7 @@ function buildStages(): StageDef[] {
     stages.push({
       id: `s${i + 1}`,
       name: `${i + 1}. ${STAGE_NAMES[i]}`,
-      desc: `${ZONE[z].area} · 難度 ${i + 1}／20${isBoss ? "（魔王）" : ""}`,
+      desc: `${ZONE[z].area} 第 ${i + 1} 關${isBoss ? "（王）" : ""}`,
       waves,
     });
   }
@@ -235,45 +226,59 @@ function buildStages(): StageDef[] {
 
 export const STAGES: StageDef[] = buildStages();
 
-// ---- 終局：試煉關（地圖「試煉」分頁；數值集中於此，便於調整）----
-// 數值依 1~20 關成長幅度外推到「第 24 關」：每階約 HP×1.31／ATK×1.25／DEF×1.20，
-// 第 24 關＝第 20 關 +4 階（HP×2.95、ATK×2.44、DEF×2.09）。錨點：一般怪 E_*[4][3]＝6136/208/56、尾王 BOSS_*[4]＝49200/180。
 const TRIAL_MOB: EnemyDef = {
   name: "改造獸", icon: "🧬",
   maxHp: 18000, atk: 460, def: 117,
   defPenPct: 0, atkInterval: 1.15, drops: [],
 };
 const TRIAL_GOLD_KING: EnemyDef = {
-  name: "👑 黃金王", icon: "👑",
+  name: "黃金王", icon: "👑",
   maxHp: 36000, atk: 460, def: 117,
   defPenPct: 0, atkInterval: 1.0,
   drops: [{ material: "mutagen", min: 1, max: 1, chance: 1, noMultiplier: true }],
   healPctPerSec: 0.03,
 };
 const TRIAL_APOSTLE: EnemyDef = {
-  name: "💀 進化的使徒", icon: "🧬",
+  name: "進化的使徒", icon: "🧬",
   maxHp: 145000, atk: 390, def: 120,
   defPenPct: 0, atkInterval: 0.95,
   drops: [{ material: "mutagen", min: 2, max: 2, chance: 1, noMultiplier: true }],
   evolve: true,
 };
-// 記憶試煉專屬敵人：數值暫沿用進化試煉的複製，名稱／icon 依 lore 改寫，待設計專屬機制與數值。
+
 const MEMORY_MOB: EnemyDef = {
-  name: "復甦戰士", icon: "🧟",
+  name: "復甦戰士", icon: "🪖",
   maxHp: 600, atk: 50, def: 25,
   defPenPct: 0, atkInterval: 1.15, drops: [],
 };
-// 無名（高攻速）：暫沿用黃金王數值，但移除回血技能（回血屬進化試煉的黃金王，與無名 lore 矛盾）。高攻速／龜向待設計。
 const MEMORY_NAMELESS: EnemyDef = {
-  name: "👤 無名", icon: "👤",
+  name: "無名", icon: "🗿",
   maxHp: 1800, atk: 60, def: 25,
   defPenPct: 0, atkInterval: 1.0, drops: [],
 };
-// 記憶的使徒：複製自進化的使徒、無進化 buff（純數值對拚）。
 const MEMORY_APOSTLE: EnemyDef = {
-  name: "💀 記憶的使徒", icon: "🧠",
+  name: "記憶的使徒", icon: "📜",
   maxHp: 5000, atk: 60, def: 35,
   defPenPct: 0, atkInterval: 0.95, drops: [],
+};
+
+export const CREATE_TRIAL_ID = "trial-create";
+const CREATE_MOB: EnemyDef = {
+  name: "自動生鎧", icon: "🪙",
+  maxHp: 22000, atk: 420, def: 140,
+  defPenPct: 0, atkInterval: 1.1,
+  drops: [{ material: "living_gold", min: 500000, max: 500000, chance: 1 }],
+};
+const CREATE_FORGE: EnemyDef = {
+  name: "失落之鎧", icon: "🧪",
+  maxHp: 50000, atk: 520, def: 160,
+  defPenPct: 0, atkInterval: 1.0,
+  drops: [{ material: "living_gold", min: 4000000, max: 4000000, chance: 1 }],
+};
+const CREATE_HOMUNCULUS: EnemyDef = {
+  name: "創造的使徒", icon: "⚙️",
+  maxHp: 110000, atk: 460, def: 180,
+  defPenPct: 0, atkInterval: 1.1, drops: [],
 };
 
 function trialWaves(mob: EnemyDef, mid: EnemyDef, boss: EnemyDef): EnemyDef[][] {
@@ -290,16 +295,23 @@ export const TRIALS: StageDef[] = [
   {
     id: "trial-evolve",
     name: "進化的試煉",
-    desc: "十波改造獸 · 敵人隨時間進化 · 掉落突變原、解鎖裝備變異",
+    desc: "短時間內打穿不斷進化的敵人，並收集突變原。",
     trial: true,
     intro: "【進化的試煉】\n· 十波改造獸，數值比照最終區。\n· 第 5 波：黃金王，每秒回血、會拖延時間。\n· 第 10 波：進化的使徒，每 5 秒輪流提升 20% 攻擊／防禦／攻速（持續累加），拖太久會打不贏。\n· 黃金王掉 1、進化的使徒掉 2 突變原；通關解鎖進化符文。\n· 每擊敗一次進化的使徒，提升裝備變異次數上限。",
     waves: trialWaves(TRIAL_MOB, TRIAL_GOLD_KING, TRIAL_APOSTLE),
   },
-  // 記憶試煉：複製自進化的試煉、取消進化 buff，文案依 lore 改寫。研究無效＋研究獎勵等機制暫沿用，待設計專屬數值與機制（高攻速無名、龜向設計、追憶實際效果）。
+  {
+    id: CREATE_TRIAL_ID,
+    name: "創造試煉",
+    desc: "戰內掉生金，靠巨大組裝機群即時轉成生物鋼，撐過尾王三模式後把殘餘資源帶出。",
+    trial: true,
+    intro: "【創造試煉】\n· 小怪掉 500000 生金，中頭目掉 4000000，受素材掉落加成影響。\n· 1 生金可煉成 1 生物鋼；請用極大量組裝機即時消化。\n· 生鋼補血：每秒每台消耗 1 生物鋼；每 1000 台運轉中機器每秒回復 1% 最大生命。\n· 生鋼增傷：每秒每台消耗 1 生物鋼；每 1000 台運轉中機器提供 1% 更多傷害，且只在運轉期間生效。\n· 尾王依序進入：防禦 5 秒無敵、攻擊 10 秒攻速 2 倍且有 99% 減傷、再生 10 秒高速回血。\n· 通關後，剩餘生物鋼的 10% 會轉成可帶出的穩定生物鋼；失敗或離場則清空。",
+    waves: trialWaves(CREATE_MOB, CREATE_FORGE, CREATE_HOMUNCULUS),
+  },
   {
     id: "trial-memory",
     name: "記憶試煉",
-    desc: "十波 · 忘卻（研究加成無效）· 純數值對拚、鼓勵防守 · 通關得 1 層追憶",
+    desc: "研究失效的長線對拚，通關可降低研究門檻。",
     trial: true,
     researchMult: 0,
     clearReward: "reincResearch",
@@ -308,7 +320,6 @@ export const TRIALS: StageDef[] = [
   },
 ];
 
-/** 跨章節與試煉查關卡。 */
 export function findStage(id: string): StageDef | undefined {
   return STAGES.find((s) => s.id === id) ?? TRIALS.find((s) => s.id === id);
 }

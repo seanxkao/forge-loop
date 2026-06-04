@@ -5,6 +5,23 @@ import { machineCoreEffects, type MachineCoreEffects } from "./machineCores.ts";
 import { emitEquipment, emitCore } from "./crafting.ts";
 import { isRecipeUnlocked } from "./unlocks.ts";
 
+export function activeMachineCountByRecipe(state: GameState, recipe: RecipeId): number {
+  let total = 0;
+  for (const tab of state.production.tabs) {
+    for (const row of tab.rows) {
+      if (row.recipe !== recipe || row.count <= 0 || row.paused || row.idle) continue;
+      if (row.auto === false && (row.queue ?? 0) <= 0) continue;
+      total += row.count;
+    }
+  }
+  return total;
+}
+
+export function hasCatalystRecipeMaterial(state: GameState, recipe: RecipeId): boolean {
+  if (recipe !== "stable_mutagen") return true;
+  return amount(state, "biosteel") > 0;
+}
+
 function newRow(recipe: RecipeId): ProductionRow {
   return { recipe, count: 1, paused: false, auto: true, queue: 0, machineStep: 1, orderStep: 1, progress: 0, productivity: 0, idle: false, reserved: {}, cores: [null, null], filter: [] };
 }
@@ -227,6 +244,13 @@ function produceOutputs(
     case "dismantler":
       state.dismantler.count += runs;
       break;
+    case "trialCatalyst":
+      if (def.output) for (const mat in def.output) add(state, mat, def.output[mat] * runs);
+      break;
+    case "trialHeal":
+      break;
+    case "trialDamage":
+      break;
   }
 }
 
@@ -252,6 +276,10 @@ function tickRow(state: GameState, row: ProductionRow, dt: number): void {
     return;
   }
   const effects = machineCoreEffects(state, row.cores);
+  if (!hasCatalystRecipeMaterial(state, row.recipe)) {
+    row.idle = true;
+    return;
+  }
   // 緩衝不足一次運轉量 → 等補料（不前進進度）。
   if (bufferedRuns(row, def) < 1) {
     row.idle = true;
@@ -288,7 +316,8 @@ function tickRow(state: GameState, row: ProductionRow, dt: number): void {
   row.productivity += runs * effects.productivity;
   while (row.productivity >= 1) {
     row.productivity -= 1;
-    produceOutputs(state, row, def, effects, 1);
+    if (def.kind === "trialCatalyst") add(state, "mutagen", 1);
+    else produceOutputs(state, row, def, effects, 1);
   }
 
   if (runs >= cycles) {

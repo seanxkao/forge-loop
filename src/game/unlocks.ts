@@ -43,6 +43,7 @@ export function isZone1Cleared(state: GameState): boolean {
 export function isRecipeUnlocked(state: GameState, recipe: RecipeId): boolean {
   const def = PROD_RECIPES[recipe];
   if (!def) return false;
+  if (def.unlock === "createTrial") return state.combat.stageId === "trial-create" || state.progress.createTrialCleared;
   if (def.unlock === "zone1") return isZone1Cleared(state);
   if (def.unlock === "core") return state.progress.coreUnlocked;
   return true;

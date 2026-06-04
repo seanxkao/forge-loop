@@ -274,6 +274,7 @@ function normalizeLegacyLegendaryFlags(state: GameState): void {
   state.progress.equippedGuideSeen = !!state.progress.equippedGuideSeen;
   state.progress.grantedLegendaryCore24 = !!state.progress.grantedLegendaryCore24;
   state.progress.grantedLegendaryCore44 = !!state.progress.grantedLegendaryCore44;
+  state.progress.createTrialCleared = !!state.progress.createTrialCleared;
 }
 
 function normalizeRunes(state: GameState): void {
